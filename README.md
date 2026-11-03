@@ -1,6 +1,6 @@
 # STM32F030F4 DALI-2 LED driver firmware
 
-Firmware for the PALAZZOLI 160 W LED driver control board (see
+Firmware for a 160 W LED driver control board (see
 `Docs/Schematics/stm32f030f4_dali_sch.pdf`). The STM32F030F4P6 (16 KB flash,
 4 KB RAM) implements a DALI-2 control gear for LED modules.
 
@@ -199,25 +199,19 @@ is gone, normal operation resumes.
   codec, the 102/207 commands, the memory banks, NVM, variant/NFC, fault latch
   and counters.
 
-**Do not regenerate code from `stm32f030f4_dali.ioc`**: CubeMX would add the
-HAL back and overwrite `main.c`. The `.ioc` is kept only as pinout reference.
-
 ## Open hardware points
 
-1. **SN74HCS596 vs NPIC6C596 footprint.** The schematic symbol and footprint
-   are those of the NPIC6C596A. The TI SN74HCS596 follows the '595-style
-   pinout (QA on pin 15, SER on pin 14, ...). Check the pinout before routing.
-2. **Shift register at power-up.** OE is tied low (R107) and MR high (R105),
+1. **Shift register at power-up.** OE is tied low (R107) and MR high (R105),
    so the outputs are enabled with random content until the MCU writes the
    register. The firmware drives `OFF` HIGH first and writes the safe variant
    within a few ms of reset. The converter can still start before the MCU
    runs, though, because R28 pulls the Q5 base low, which means "converter
    ON". Recommended changes: a pull-up on OFF (converter off by default)
    and/or OE driven or pulled up.
-3. **I2C speed.** I2C runs at 100 kHz because of the 10 kΩ pull-ups and the
+2. **I2C speed.** I2C runs at 100 kHz because of the 10 kΩ pull-ups and the
    NFC board connector.
-4. **Req values.** The Req computed from the fitted E96 values is about 1 %
+3. **Req values.** The Req computed from the fitted E96 values is about 1 %
    above the "Req target" column of the table. The SN74HCS596 R_on adds a
    little more.
-5. **No supply or output current measurement**: the 252/253 values listed
+4. **No supply or output current measurement**: the 252/253 values listed
    above are estimates.

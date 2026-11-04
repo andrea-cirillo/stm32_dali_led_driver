@@ -191,8 +191,14 @@ is gone, normal operation resumes.
 
 ## Build
 
-- **STM32CubeIDE**: import the project. Debug builds with `-Og` (~15.2 KB,
-  93 %) and Release with `-Os` (~13.2 KB, 81 %).
+- **STM32CubeIDE**: import the project. Debug builds with `-Og` (~14.9 KB,
+  91 %) and Release with `-Os` (~13.0 KB, 79 %). The linker runs with
+  `-nostartfiles` (MCU GCC Linker > Miscellaneous > Other flags): the
+  project's own startup file replaces the toolchain `crt0`. Without this
+  flag, `crt0` pulls in the newlib exit / stdio code and the linker warns
+  "_close / _lseek / _read / _write is not implemented".
+  The startup does not call `__libc_init_array`, because the firmware is
+  pure C with no static constructors.
 - **Command line**: run `make` (needs `arm-none-eabi-gcc`). It produces
   `build/stm32f030f4_dali.elf/.hex/.bin`.
 - **Host unit tests**: run `make -C Test/host`. They cover the Manchester

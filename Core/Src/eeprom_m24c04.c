@@ -14,12 +14,26 @@
 #define M24C04_READ_CHUNK      (128U)
 #define M24C04_RETRIES         (3U)
 
+/**
+ * @brief   Builds the 7-bit device select code for an EEPROM byte address.
+ * @details The M24C04 uses address bit A8 as the LSB of the device select code.
+ * @param[in] addr  Byte address 0..511.
+ * @return  7-bit I2C address: 0x50 (0..255) or 0x51 (256..511).
+ * @note    Context: any.
+ */
 static uint8_t dev_addr(uint16_t addr)
 {
   return (uint8_t)(M24C04_DEV_ADDR | (uint8_t)((addr >> 8U) & 1U));
 }
 
-/* Waits for the end of the internal write cycle (device answers again). */
+/**
+ * @brief   Waits for the end of the EEPROM internal write cycle.
+ * @details Repeats a dummy address + 1 byte read until the device acknowledges
+ *          (it NACKs while programming), for at most M24C04_WRITE_TIME_MS.
+ * @param[in] addr  Address of the page just written (selects the device code).
+ * @return  true when the device answers again, false on timeout.
+ * @note    Context: main loop only.
+ */
 static bool ack_polling(uint16_t addr)
 {
   const uint32_t start = BSP_GetTickMs();
@@ -34,6 +48,7 @@ static bool ack_polling(uint16_t addr)
   return ok;
 }
 
+/* Public API (full description in eeprom_m24c04.h): reads an EEPROM area. */
 bool M24C04_Read(uint16_t addr, uint8_t *data, uint16_t len)
 {
   bool ok = (data != NULL) && (len != 0U) && (((uint32_t)addr + len) <= M24C04_SIZE);
@@ -68,6 +83,7 @@ bool M24C04_Read(uint16_t addr, uint8_t *data, uint16_t len)
   return ok;
 }
 
+/* Public API (full description in eeprom_m24c04.h): page-aware write with ACK polling. */
 bool M24C04_Write(uint16_t addr, const uint8_t *data, uint16_t len)
 {
   bool ok = (data != NULL) && (len != 0U) && (((uint32_t)addr + len) <= M24C04_SIZE);

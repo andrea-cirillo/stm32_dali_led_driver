@@ -25,6 +25,16 @@
 
 static volatile uint32_t s_tickMs = 0U;
 
+/**
+ * @brief   Sets the MODER field of one GPIO pin.
+ * @details Read-modify-write of the 2-bit mode field; the other pins are untouched.
+ * @param[in] port  GPIO port (GPIOA, GPIOB, GPIOF).
+ * @param[in] pin   Pin number 0..15.
+ * @param[in] mode  GPIO_MODE_INPUT, GPIO_MODE_OUTPUT, GPIO_MODE_AF or GPIO_MODE_ANALOG.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: main (initialisation only, not interrupt safe).
+ */
 static void gpio_set_mode(GPIO_TypeDef *port, uint32_t pin, uint32_t mode)
 {
   uint32_t moder = port->MODER;
@@ -33,6 +43,17 @@ static void gpio_set_mode(GPIO_TypeDef *port, uint32_t pin, uint32_t mode)
   port->MODER = moder;
 }
 
+/**
+ * @brief   Selects the alternate function of one GPIO pin.
+ * @details Writes the 4-bit AFRL / AFRH field. The pin must also be set to
+ *          GPIO_MODE_AF with gpio_set_mode().
+ * @param[in] port  GPIO port.
+ * @param[in] pin   Pin number 0..15.
+ * @param[in] af    Alternate function number 0..7 (e.g. 4 = I2C1 / TIM14).
+ * @par     Return value
+ *          None (void).
+ * @note    Context: main (initialisation only).
+ */
 static void gpio_set_af(GPIO_TypeDef *port, uint32_t pin, uint32_t af)
 {
   const uint32_t idx = pin >> 3U;
@@ -43,6 +64,7 @@ static void gpio_set_af(GPIO_TypeDef *port, uint32_t pin, uint32_t af)
   port->AFR[idx] = afr;
 }
 
+/* Public API (full description in bsp.h): forces the power stage OFF right after reset. */
 void BSP_EarlyInit(void)
 {
   /* Power stage OFF as soon as possible (OFF pin HIGH). */
@@ -51,6 +73,17 @@ void BSP_EarlyInit(void)
   gpio_set_mode(BSP_OFF_PORT, BSP_OFF_PIN, GPIO_MODE_OUTPUT);
 }
 
+/**
+ * @brief   Configures the clock tree: SYSCLK 48 MHz from PLL (HSI/2 x 12).
+ * @details Sets 1 flash wait state with prefetch, starts the PLL and switches
+ *          SYSCLK to it, updates SystemCoreClock, starts HSI14 for the ADC,
+ *          selects HSI as I2C1 kernel clock and enables the SYSCFG clock.
+ * @par     Parameters
+ *          None.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: main, once. Busy waits for PLL / HSI14 ready.
+ */
 static void clock_init(void)
 {
   /* Flash: 1 wait state + prefetch for 48 MHz */
@@ -84,6 +117,17 @@ static void clock_init(void)
   RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;
 }
 
+/**
+ * @brief   Configures every GPIO according to the board pin map.
+ * @details DALI TX released (idle level depends on DALI_CFG_TX_ACTIVE_HIGH),
+ *          DALI RX and NFC ED inputs, uVLED and unused pins analog, shift
+ *          register lines low, PWM_OUT on AF4 (TIM14), I2C1 on AF4 open drain.
+ * @par     Parameters
+ *          None.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: main, once. OFF (PA3) is configured by BSP_EarlyInit().
+ */
 static void gpio_init(void)
 {
   /* DALI TX: idle = bus released */
@@ -122,6 +166,7 @@ static void gpio_init(void)
   gpio_set_mode(GPIOA, BSP_I2C_SDA_PIN, GPIO_MODE_AF);
 }
 
+/* Public API (full description in bsp.h): clock tree, GPIO and 1 ms SysTick. */
 void BSP_Init(void)
 {
   clock_init();
@@ -134,16 +179,19 @@ void BSP_Init(void)
   SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_ENABLE_Msk;
 }
 
+/* Public API (full description in bsp.h): milliseconds since start-up. */
 uint32_t BSP_GetTickMs(void)
 {
   return s_tickMs;
 }
 
+/* Public API (full description in bsp.h): millisecond counter increment (SysTick). */
 void BSP_TickIncrement(void)
 {
   s_tickMs++;
 }
 
+/* Public API (full description in bsp.h): busy wait in milliseconds. */
 void BSP_DelayMs(uint32_t ms)
 {
   const uint32_t start = s_tickMs;
@@ -153,6 +201,7 @@ void BSP_DelayMs(uint32_t ms)
   }
 }
 
+/* Public API (full description in bsp.h): drives the OFF pin. */
 void BSP_PowerStageEnable(bool enable)
 {
   if (enable)
@@ -165,11 +214,13 @@ void BSP_PowerStageEnable(bool enable)
   }
 }
 
+/* Public API (full description in bsp.h): reads back the OFF pin latch. */
 bool BSP_PowerStageIsEnabled(void)
 {
   return ((BSP_OFF_PORT->ODR & BSP_PIN_MASK(BSP_OFF_PIN)) == 0U);
 }
 
+/* Public API (full description in bsp.h): starts the ~1 s independent watchdog. */
 void BSP_WatchdogInit(void)
 {
   IWDG->KR = IWDG_KEY_ENABLE;
@@ -183,11 +234,13 @@ void BSP_WatchdogInit(void)
   IWDG->KR = IWDG_KEY_RELOAD;
 }
 
+/* Public API (full description in bsp.h): reloads the watchdog. */
 void BSP_WatchdogRefresh(void)
 {
   IWDG->KR = IWDG_KEY_RELOAD;
 }
 
+/* Public API (full description in bsp.h): nestable critical section entry. */
 uint32_t BSP_EnterCritical(void)
 {
   const uint32_t primask = __get_PRIMASK();
@@ -195,11 +248,13 @@ uint32_t BSP_EnterCritical(void)
   return primask;
 }
 
+/* Public API (full description in bsp.h): critical section exit. */
 void BSP_ExitCritical(uint32_t primask)
 {
   __set_PRIMASK(primask);
 }
 
+/* Public API (full description in bsp.h): reads the 96-bit device UID. */
 void BSP_GetUid(uint8_t uid[12])
 {
   /* MISRA 11.4 deviation: fixed system memory address of the device UID. */

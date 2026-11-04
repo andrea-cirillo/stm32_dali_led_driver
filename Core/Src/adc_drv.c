@@ -14,12 +14,19 @@
 /* Average slope 4.3 mV/degC -> 5.336 LSB/degC at 3.3 V, scaled by 1000 */
 #define TS_SLOPE_LSB_X1000     (5336UL)
 
-/* MISRA 11.4 deviation: read-only factory calibration words at fixed address */
+/**
+ * @brief   Reads a 16-bit factory calibration word from system memory.
+ * @param[in] addr  Address of the calibration value (VREFINT_CAL_ADDR or TS_CAL1_ADDR).
+ * @return  Calibration value (12-bit ADC code measured at 3.3 V / 30 degC).
+ * @note    MISRA C:2012 Rule 11.4 deviation: integer to pointer conversion for a
+ * @note    fixed, read-only hardware address.
+ */
 static uint16_t read_cal(uint32_t addr)
 {
   return *(const volatile uint16_t *)addr;
 }
 
+/* Public API (full description in adc_drv.h): ADC calibration and enable. */
 void ADC_DrvInit(void)
 {
   RCC->APB2ENR |= RCC_APB2ENR_ADCEN;
@@ -56,6 +63,7 @@ void ADC_DrvInit(void)
   }
 }
 
+/* Public API (full description in adc_drv.h): single blocking conversion. */
 uint16_t ADC_DrvRead(uint32_t channel)
 {
   ADC1->CHSELR = (uint32_t)1UL << channel;
@@ -68,6 +76,7 @@ uint16_t ADC_DrvRead(uint32_t channel)
   return (uint16_t)(ADC1->DR & 0x0FFFU);
 }
 
+/* Public API (full description in adc_drv.h): VDDA from VREFINT. */
 uint32_t ADC_DrvGetVddaMv(void)
 {
   const uint32_t raw = ADC_DrvRead(ADC_CH_VREFINT);
@@ -80,6 +89,7 @@ uint32_t ADC_DrvGetVddaMv(void)
   return vdda;
 }
 
+/* Public API (full description in adc_drv.h): die temperature. */
 int32_t ADC_DrvGetTemperatureC(uint32_t vddaMv)
 {
   const uint32_t raw = ADC_DrvRead(ADC_CH_TEMP);

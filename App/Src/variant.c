@@ -53,6 +53,7 @@ static volatile bool s_nfcEvent = false;
 static volatile uint32_t s_nfcEventMs = 0U;
 static uint32_t s_lastPollMs = 0U;
 
+/* Public API (full description in variant.h): record validation and decoding. */
 bool Variant_DecodeRecord(const uint8_t rec[VARIANT_RECORD_SIZE], uint8_t *variant)
 {
   const uint16_t crc = CRC16_Compute(rec, 6U);
@@ -68,6 +69,7 @@ bool Variant_DecodeRecord(const uint8_t rec[VARIANT_RECORD_SIZE], uint8_t *varia
   return ok;
 }
 
+/* Public API (full description in variant.h): record encoding. */
 void Variant_EncodeRecord(uint8_t variant, uint8_t rec[VARIANT_RECORD_SIZE])
 {
   uint16_t crc;
@@ -83,6 +85,14 @@ void Variant_EncodeRecord(uint8_t variant, uint8_t rec[VARIANT_RECORD_SIZE])
   rec[7] = (uint8_t)crc;
 }
 
+/**
+ * @brief   Reads and validates the variant record stored on the NTAG 5.
+ * @details Reads the 8 bytes at CFG_NFC_VARIANT_BLOCK, up to TAG_READ_RETRIES
+ *          times (the tag NACKs while the RF side owns the memory).
+ * @param[out] variant  Decoded variant; written only on success.
+ * @return  true if a valid record was read, false otherwise (tag absent, busy or invalid record).
+ * @note    Context: main loop only.
+ */
 static bool read_tag(uint8_t *variant)
 {
   uint8_t rec[VARIANT_RECORD_SIZE];
@@ -97,7 +107,17 @@ static bool read_tag(uint8_t *variant)
   return ok;
 }
 
-/* Stores a variant read from the tag if it differs from the EEPROM one. */
+/**
+ * @brief   Copies a new variant from the NTAG 5 to the EEPROM.
+ * @details If the tag holds a valid record whose variant differs from the stored
+ *          one (or none is stored), the record is written to both EEPROM copies
+ *          and becomes the stored variant. The active variant is not changed.
+ * @par     Parameters
+ *          None.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: main loop only.
+ */
 static void sync_from_tag(void)
 {
   uint8_t tagVariant = 0U;
@@ -117,6 +137,7 @@ static void sync_from_tag(void)
   }
 }
 
+/* Public API (full description in variant.h): variant selection at boot. */
 void Variant_ApplyAtBoot(void)
 {
   uint8_t rec[VARIANT_RECORD_SIZE];
@@ -149,22 +170,26 @@ void Variant_ApplyAtBoot(void)
   s_lastPollMs = BSP_GetTickMs();
 }
 
+/* Public API (full description in variant.h): variant applied at boot. */
 uint8_t Variant_GetActive(void)
 {
   return s_active;
 }
 
+/* Public API (full description in variant.h): variant stored in EEPROM. */
 uint8_t Variant_GetStored(void)
 {
   return s_stored;
 }
 
+/* Public API (full description in variant.h): NTAG 5 ED event. */
 void Variant_NfcEventIrq(void)
 {
   s_nfcEventMs = BSP_GetTickMs();
   s_nfcEvent = true;
 }
 
+/* Public API (full description in variant.h): NFC polling task. */
 void Variant_Service(void)
 {
   const uint32_t now = BSP_GetTickMs();

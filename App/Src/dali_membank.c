@@ -52,7 +52,16 @@ static uint8_t s_id[8];
 
 /* ---- helpers ------------------------------------------------------------- */
 
-/* Big-endian store with saturation at MAX - 2 (0x..FD, 0x..FE/FF reserved). */
+/**
+ * @brief   Stores a value big-endian into a memory bank field, with saturation.
+ * @details The value is limited to the field maximum minus 2 (0x..FD), because
+ *          0x..FE (TMASK) and 0x..FF (MASK) are reserved by IEC 62386-25x.
+ * @param[out] dst    First byte of the field (MSB).
+ * @param[in]  value  Value to store.
+ * @param[in]  n      Field size in bytes (1..4).
+ * @par     Return value
+ *          None (void).
+ */
 static void put_be(uint8_t *dst, uint32_t value, uint8_t n)
 {
   const uint32_t maxVal = (n >= 4U) ? 0xFFFFFFFDUL : ((1UL << (8U * n)) - 3UL);
@@ -66,6 +75,12 @@ static void put_be(uint8_t *dst, uint32_t value, uint8_t n)
   }
 }
 
+/**
+ * @brief   Maps a latchable bank number to its index in the lock / snapshot arrays.
+ * @param[in] bank  Memory bank number.
+ * @return  LB_202, LB_205, LB_206, or -1 for any other bank.
+ * @note    Context: SysTick.
+ */
 static int32_t latch_index(uint8_t bank)
 {
   int32_t idx = -1;
@@ -88,6 +103,18 @@ static int32_t latch_index(uint8_t bank)
   return idx;
 }
 
+/**
+ * @brief   Loads the IEC 62386-251 factory defaults into the bank 1 RAM mirror.
+ * @details GTIN / luminaire ID = 0xFF (not specified), content format ID,
+ *          manufacturing date, powers, voltages, light output, CRI, CCT and
+ *          light distribution from app_config.h, colour and identification
+ *          strings = 0x00.
+ * @par     Parameters
+ *          None.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: main (init) or SysTick (RESET MEMORY BANK).
+ */
 static void mb1_defaults(void)
 {
   uint8_t *const p = &s_mb1[0];
@@ -122,7 +149,20 @@ static void mb1_defaults(void)
   }
 }
 
-/* Builds the live image of a latchable bank. */
+/**
+ * @brief   Builds the live image of a latchable bank (202, 205 or 206).
+ * @details Every location defaults to 0xFF (MASK = not implemented), location
+ *          0x03 is the bank version 1.0, then the bank specific values are
+ *          filled from the counters and monitor estimates:
+ *          202: active energy (Wh) and power (0.1 W);
+ *          205: gear operating time, starts, failure, temperature, output %;
+ *          206: light source starts, on times, voltage, current, failures.
+ * @param[in]  bank  202, 205 or 206 (any other value builds bank 206).
+ * @param[out] img   Destination, IMG_SIZE bytes indexed by location.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void build_image(uint8_t bank, uint8_t img[IMG_SIZE])
 {
   const NVM_Counters_t *const c = OpData_Get();
@@ -179,6 +219,16 @@ static void build_image(uint8_t bank, uint8_t img[IMG_SIZE])
   }
 }
 
+/**
+ * @brief   Reads one location of memory bank 0 (IEC 62386-102 identification).
+ * @details GTIN and versions from app_config.h, identification number derived
+ *          from the UID, part 101 / 102 versions 2.0, part 103 not implemented,
+ *          0 logical control devices, 1 logical control gear unit.
+ * @param[in]  loc    Location 0x00..0x1A.
+ * @param[out] value  Location content; written only on success.
+ * @return  true if implemented, false for reserved locations (no answer).
+ * @note    Context: SysTick.
+ */
 static bool read_mb0(uint8_t loc, uint8_t *value)
 {
   bool ok = true;
@@ -220,6 +270,7 @@ static bool read_mb0(uint8_t loc, uint8_t *value)
 
 /* ---- public API ---------------------------------------------------------- */
 
+/* Public API (full description in dali_membank.h): identification number and bank 1 load. */
 void MB_Init(void)
 {
   uint8_t uid[12];
@@ -254,6 +305,7 @@ void MB_Init(void)
   }
 }
 
+/* Public API (full description in dali_membank.h): deferred bank 1 persistence. */
 void MB_Service(void)
 {
   if (s_mb1Dirty && ((BSP_GetTickMs() - s_mb1DirtyMs) >= MB1_SAVE_DELAY_MS))
@@ -272,11 +324,13 @@ void MB_Service(void)
   }
 }
 
+/* Public API (full description in dali_membank.h): bank existence. */
 bool MB_IsImplemented(uint8_t bank)
 {
   return (bank == 0U) || (bank == 1U) || (latch_index(bank) >= 0);
 }
 
+/* Public API (full description in dali_membank.h): last accessible location. */
 uint8_t MB_LastLocation(uint8_t bank)
 {
   uint8_t last;
@@ -292,6 +346,7 @@ uint8_t MB_LastLocation(uint8_t bank)
   return last;
 }
 
+/* Public API (full description in dali_membank.h): READ MEMORY LOCATION. */
 bool MB_Read(uint8_t bank, uint8_t loc, uint8_t *value)
 {
   const int32_t li = latch_index(bank);
@@ -334,6 +389,7 @@ bool MB_Read(uint8_t bank, uint8_t loc, uint8_t *value)
   return ok;
 }
 
+/* Public API (full description in dali_membank.h): WRITE MEMORY LOCATION. */
 bool MB_Write(uint8_t bank, uint8_t loc, uint8_t value)
 {
   const int32_t li = latch_index(bank);
@@ -388,6 +444,7 @@ bool MB_Write(uint8_t bank, uint8_t loc, uint8_t value)
   return ok;
 }
 
+/* Public API (full description in dali_membank.h): RESET MEMORY BANK. */
 void MB_Reset(uint8_t bank)
 {
   if (((bank == 0U) || (bank == 1U)) && (s_mb1Lock == UNLOCK_VALUE))

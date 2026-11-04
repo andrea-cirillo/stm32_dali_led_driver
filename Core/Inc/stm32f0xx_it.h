@@ -1,64 +1,84 @@
-/* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file    stm32f0xx_it.h
-  * @brief   This file contains the headers of the interrupt handlers.
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
-/* USER CODE END Header */
+ ******************************************************************************
+ * @file    stm32f0xx_it.h
+ * @brief   Interrupt service routines (register level, no HAL).
+ ******************************************************************************
+ */
+#ifndef STM32F0XX_IT_H
+#define STM32F0XX_IT_H
 
-/* Define to prevent recursive inclusion -------------------------------------*/
-#ifndef __STM32F0xx_IT_H
-#define __STM32F0xx_IT_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
-
-/* USER CODE END Includes */
-
-/* Exported types ------------------------------------------------------------*/
-/* USER CODE BEGIN ET */
-
-/* USER CODE END ET */
-
-/* Exported constants --------------------------------------------------------*/
-/* USER CODE BEGIN EC */
-
-/* USER CODE END EC */
-
-/* Exported macro ------------------------------------------------------------*/
-/* USER CODE BEGIN EM */
-
-/* USER CODE END EM */
-
-/* Exported functions prototypes ---------------------------------------------*/
+/**
+ * @brief   Non maskable interrupt (e.g. clock security system).
+ * @details Fatal: forces the power stage OFF and resets the MCU.
+ * @par     Parameters
+ *          None.
+ * @par     Return value
+ *          Does not return.
+ */
 void NMI_Handler(void);
+
+/**
+ * @brief   Hard fault exception.
+ * @details Fatal: forces the power stage OFF and resets the MCU, so a
+ *          software fault can never leave the converter running uncontrolled.
+ * @par     Parameters
+ *          None.
+ * @par     Return value
+ *          Does not return.
+ */
 void HardFault_Handler(void);
+
+/**
+ * @brief   Supervisor call exception (not used).
+ * @par     Parameters
+ *          None.
+ * @par     Return value
+ *          None (void).
+ */
 void SVC_Handler(void);
+
+/**
+ * @brief   PendSV exception (not used).
+ * @par     Parameters
+ *          None.
+ * @par     Return value
+ *          None (void).
+ */
 void PendSV_Handler(void);
+
+/**
+ * @brief   1 ms system tick: forwards to APP_Tick1ms() (time base, DALI
+ *          command processing, fades and light output).
+ * @par     Parameters
+ *          None.
+ * @par     Return value
+ *          None (void).
+ * @note    Priority BSP_PRIO_SYSTICK (1).
+ */
 void SysTick_Handler(void);
+
+/**
+ * @brief   EXTI lines 0 and 1.
+ * @details Line 1 (PF1, MCU_RXD): DALI receive edge -> DALI_PHY_RxEdgeIrq().
+ *          Line 0 (PA0, NFC_EventDetect): NTAG 5 event -> APP_NfcEventIrq().
+ *          The pending flags are cleared before dispatching.
+ * @par     Parameters
+ *          None.
+ * @par     Return value
+ *          None (void).
+ * @note    Priority BSP_PRIO_DALI_PHY (0).
+ */
 void EXTI0_1_IRQHandler(void);
+
+/**
+ * @brief   TIM3 global interrupt: DALI receive timeout (CC1) and transmit
+ *          half-bit timing (CC2), forwarded to DALI_PHY_TimerIrq().
+ * @par     Parameters
+ *          None.
+ * @par     Return value
+ *          None (void).
+ * @note    Priority BSP_PRIO_DALI_PHY (0).
+ */
 void TIM3_IRQHandler(void);
-/* USER CODE BEGIN EFP */
 
-/* USER CODE END EFP */
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif /* __STM32F0xx_IT_H */
+#endif /* STM32F0XX_IT_H */

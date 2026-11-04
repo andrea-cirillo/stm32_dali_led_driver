@@ -19,6 +19,22 @@
 
 static volatile bool s_appReady = false;
 
+/**
+ * @brief   Firmware entry point.
+ * @details Initialisation order (see README "Boot sequence"):
+ *          1. power stage OFF, clocks, GPIO, I2C;
+ *          2. light output OFF with PWM at minimum current;
+ *          3. lamp variant: EEPROM / NFC, shift register (stage still OFF);
+ *          4. memory banks, counters, monitor, DALI persistent variables;
+ *          5. DALI PHY and watchdog; SysTick processing enabled;
+ *          6. power-on level.
+ *          Then the main loop runs the slow tasks: watchdog refresh, LED
+ *          monitoring, counters, deferred EEPROM writes and NFC polling.
+ * @par     Parameters
+ *          None.
+ * @return  Never returns (int is required by the C start-up code).
+ * @note    Context: reset handler.
+ */
 int main(void)
 {
   /* 1. power stage OFF before anything else */
@@ -57,6 +73,7 @@ int main(void)
   }
 }
 
+/* Public API (full description in main.h): 1 ms application tick (SysTick). */
 void APP_Tick1ms(void)
 {
   BSP_TickIncrement();
@@ -66,6 +83,7 @@ void APP_Tick1ms(void)
   }
 }
 
+/* Public API (full description in main.h): NTAG 5 ED event (EXTI0). */
 void APP_NfcEventIrq(void)
 {
   Variant_NfcEventIrq();

@@ -198,6 +198,13 @@ is gone, normal operation resumes.
 - **Host unit tests**: run `make -C Test/host`. They cover the Manchester
   codec, the 102/207 commands, the memory banks, NVM, variant/NFC, fault latch
   and counters.
+- **API documentation**: every function, public and static, carries a
+  Doxygen block with description, inputs (`@param[in/out]`), output
+  (`@return` / return value), preconditions and execution context. Public
+  APIs are fully described in the headers (`Core/Inc`, `App/Inc`). The `.c`
+  files document the internal functions and point to the header for the
+  public ones. Run `doxygen` from the repository root to get the HTML in
+  `build/doc/html` (`doxygen` package needed).
 
 ## Open hardware points
 

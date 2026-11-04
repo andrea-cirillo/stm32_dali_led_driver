@@ -11,6 +11,16 @@
 #include "shiftreg.h"
 #include "bsp.h"
 
+/**
+ * @brief   Short delay (4 NOP, ~85 ns at 48 MHz) between shift register edges.
+ * @details Together with the GPIO write latency every phase lasts > 100 ns,
+ *          far above the SN74HCS596 minimum pulse width (~20 ns at 3.3 V).
+ * @par     Parameters
+ *          None.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: any.
+ */
 static void short_delay(void)
 {
   __NOP();
@@ -19,6 +29,7 @@ static void short_delay(void)
   __NOP();
 }
 
+/* Public API (full description in shiftreg.h): shifts and latches one byte (bit n -> Qn). */
 void ShiftReg_Write(uint8_t value)
 {
   uint32_t i;

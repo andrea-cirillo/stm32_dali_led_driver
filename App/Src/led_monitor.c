@@ -31,6 +31,14 @@ static uint32_t s_lastTempMs = 0U;
 static uint8_t  s_candidate = 0U;
 static uint8_t  s_debounce = 0U;
 
+/**
+ * @brief   Classifies one LED voltage sample against the fault thresholds.
+ * @details Order of evaluation: short circuit, open circuit, over voltage
+ *          (load increase), under voltage (load decrease).
+ * @param[in] vMv  LED voltage in millivolts.
+ * @return  One MON_FAIL_xxx bit, or 0 if the voltage is within the limits.
+ * @note    Context: main loop.
+ */
 static uint8_t classify(uint32_t vMv)
 {
   uint8_t f = 0U;
@@ -58,6 +66,16 @@ static uint8_t classify(uint32_t vMv)
   return f;
 }
 
+/**
+ * @brief   Updates the estimated LED current and input power.
+ * @details I = nominal current of the active variant * relative current;
+ *          P_in = V_LED * I / efficiency + standby power (standby only when off).
+ * @par     Parameters
+ *          None.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: main loop, after every uVLED sample.
+ */
 static void update_estimates(void)
 {
   const uint32_t rel = Light_GetRelativeCurrentQ16();
@@ -70,6 +88,7 @@ static void update_estimates(void)
   s_powerMw = ((pOutMw * 100UL) / CFG_EFFICIENCY_PERCENT) + CFG_STANDBY_POWER_MW;
 }
 
+/* Public API (full description in led_monitor.h): ADC start and first readings. */
 void Monitor_Init(void)
 {
   ADC_DrvInit();
@@ -80,6 +99,7 @@ void Monitor_Init(void)
   s_lastTempMs = s_lastSampleMs;
 }
 
+/* Public API (full description in led_monitor.h): sampling and fault detection task. */
 void Monitor_Service(void)
 {
   const uint32_t now = BSP_GetTickMs();
@@ -138,26 +158,31 @@ void Monitor_Service(void)
   }
 }
 
+/* Public API (full description in led_monitor.h): confirmed failure bits. */
 uint8_t Monitor_GetFailureStatus(void)
 {
   return s_failure;
 }
 
+/* Public API (full description in led_monitor.h): LED voltage. */
 uint32_t Monitor_GetLedVoltageMv(void)
 {
   return s_vledMv;
 }
 
+/* Public API (full description in led_monitor.h): estimated LED current. */
 uint32_t Monitor_GetLedCurrentMa(void)
 {
   return s_currentMa;
 }
 
+/* Public API (full description in led_monitor.h): estimated input power. */
 uint32_t Monitor_GetInputPowerMw(void)
 {
   return s_powerMw;
 }
 
+/* Public API (full description in led_monitor.h): die temperature. */
 int16_t Monitor_GetTemperatureC(void)
 {
   return s_temperature;

@@ -100,17 +100,42 @@ static uint32_t s_pendMs = 0U;
 
 /* ---- helpers --------------------------------------------------------------- */
 
+/**
+ * @brief   Marks the persistent variables as modified.
+ * @details Records the change time; Gear_NvmService() saves them
+ *          CFG_NVM_SAVE_DELAY_MS after the last change.
+ * @par     Parameters
+ *          None.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void nv_dirty(void)
 {
   s_nvDirty = true;
   s_nvDirtyMs = BSP_GetTickMs();
 }
 
+/**
+ * @brief   Sends a backward frame as answer to the current command.
+ * @param[in] value  Answer byte.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void reply(uint8_t value)
 {
   DALI_PHY_SendBackward(value);
 }
 
+/**
+ * @brief   Answers YES (0xFF) if the condition is true, nothing otherwise.
+ * @details DALI "NO" is the absence of an answer.
+ * @param[in] cond  Condition to report.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void reply_yes_if(bool cond)
 {
   if (cond)
@@ -119,6 +144,16 @@ static void reply_yes_if(bool cond)
   }
 }
 
+/**
+ * @brief   Generates a new 24-bit random address (RANDOMISE).
+ * @details xorshift32 generator, re-seeded with the arrival time (us) of the
+ *          command and previously with the UID and every received frame, so
+ *          that devices powered at the same time diverge. 0xFFFFFF is excluded.
+ * @par     Parameters
+ *          None.
+ * @return  Random address 0x000000..0xFFFFFE.
+ * @note    Context: SysTick.
+ */
 static uint32_t random_address(void)
 {
   uint32_t r;
@@ -138,6 +173,13 @@ static uint32_t random_address(void)
   return r;
 }
 
+/**
+ * @brief   Returns the 24-bit randomAddress variable.
+ * @par     Parameters
+ *          None.
+ * @return  randomAddress (H << 16 | M << 8 | L).
+ * @note    Context: SysTick.
+ */
 static uint32_t get_random_addr(void)
 {
   return ((uint32_t)s_nv.randomAddress[0] << 16U) |
@@ -145,6 +187,13 @@ static uint32_t get_random_addr(void)
          (uint32_t)s_nv.randomAddress[2];
 }
 
+/**
+ * @brief   Sets the 24-bit randomAddress variable and marks it for saving.
+ * @param[in] a  New random address (only the 24 LSBs are used).
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void set_random_addr(uint32_t a)
 {
   s_nv.randomAddress[0] = (uint8_t)(a >> 16U);
@@ -153,11 +202,25 @@ static void set_random_addr(uint32_t a)
   nv_dirty();
 }
 
+/**
+ * @brief   Returns the 16-bit group membership mask.
+ * @par     Parameters
+ *          None.
+ * @return  Bit n set = member of group n.
+ * @note    Context: SysTick.
+ */
 static uint16_t get_groups(void)
 {
   return (uint16_t)(((uint16_t)s_nv.groups[1] << 8U) | s_nv.groups[0]);
 }
 
+/**
+ * @brief   Sets the group membership mask and marks it for saving.
+ * @param[in] g  Bit n set = member of group n.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void set_groups(uint16_t g)
 {
   s_nv.groups[0] = (uint8_t)g;
@@ -165,6 +228,16 @@ static void set_groups(uint16_t g)
   nv_dirty();
 }
 
+/**
+ * @brief   Writes a persistent byte variable, marking it dirty only if changed.
+ * @details Avoids useless EEPROM writes when a configuration command repeats
+ *          the current value.
+ * @param[in,out] var    Variable inside s_nv.
+ * @param[in]     value  New value.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void set_nv(uint8_t *var, uint8_t value)
 {
   if (*var != value)
@@ -174,6 +247,17 @@ static void set_nv(uint8_t *var, uint8_t value)
   }
 }
 
+/**
+ * @brief   Returns the fade duration to use for arc power commands.
+ * @details fadeTime > 0: T(n) = 0.5 * sqrt(2^n) s;
+ *          else fastFadeTime > 0 (IEC 62386-207): n * 25 ms;
+ *          else extended fade time (IEC 62386-102): (base + 1) * multiplier
+ *          (0 / 100 ms / 1 s / 10 s / 1 min); 0 = no fade.
+ * @par     Parameters
+ *          None.
+ * @return  Fade duration in milliseconds (0 = immediate).
+ * @note    Context: SysTick.
+ */
 static uint32_t fade_time_ms(void)
 {
   uint32_t ms;
@@ -195,13 +279,28 @@ static uint32_t fade_time_ms(void)
   return ms;
 }
 
+/**
+ * @brief   Returns the fade rate as speed of the fade engine.
+ * @details F(n) = 506 / sqrt(2^n) steps/s, n = fadeRate (7 if invalid).
+ * @par     Parameters
+ *          None.
+ * @return  Speed in Q16 levels per millisecond.
+ * @note    Context: SysTick.
+ */
 static uint32_t fade_rate_q16(void)
 {
   const uint8_t r = ((s_nv.fadeRate >= 1U) && (s_nv.fadeRate <= 15U)) ? s_nv.fadeRate : 7U;
   return k_fadeRateQ16[r - 1U];
 }
 
-/* Clamps a requested level to [min, max] (0 = off) and sets limitError. */
+/**
+ * @brief   Clamps a requested arc power level to [minLevel, maxLevel].
+ * @details Level 0 (off) is kept. Updates limitError (QUERY LIMIT ERROR):
+ *          true if the request had to be clamped.
+ * @param[in] level  Requested level 0..254.
+ * @return  Level to apply.
+ * @note    Context: SysTick.
+ */
 static uint8_t clamp_level(uint8_t level)
 {
   uint8_t l = level;
@@ -228,7 +327,16 @@ static uint8_t clamp_level(uint8_t level)
   return l;
 }
 
-/* Arc power change towards an already clamped level. */
+/**
+ * @brief   Applies an arc power change to an already clamped level.
+ * @details Stops the identification, starts the fade, updates lastActiveLevel
+ *          (non-zero targets) and clears "power cycle seen".
+ * @param[in] level   Target level 0..254.
+ * @param[in] fadeMs  Fade duration in ms (0 = immediate).
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void go_to(uint8_t level, uint32_t fadeMs)
 {
   Light_SetIdentify(false, s_nv.minLevel);
@@ -241,6 +349,14 @@ static void go_to(uint8_t level, uint32_t fadeMs)
   s_powerCycleSeen = false;
 }
 
+/**
+ * @brief   Evaluates the resetState flag (QUERY RESET STATE, status bit 5).
+ * @details Compares every resettable variable with its RESET value.
+ * @par     Parameters
+ *          None.
+ * @return  true if all variables have their reset value.
+ * @note    Context: SysTick.
+ */
 static bool is_reset_state(void)
 {
   uint32_t i;
@@ -257,6 +373,17 @@ static bool is_reset_state(void)
   return r;
 }
 
+/**
+ * @brief   Loads the RESET values into the variables (RESET command).
+ * @details Levels 254, minLevel = PHM, fade rate 7, fade times 0, operating mode
+ *          0, scenes MASK, groups 0, random / search address 0xFFFFFF, DT6
+ *          curve logarithmic and fast fade 0. The short address is NOT changed.
+ * @par     Parameters
+ *          None.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void set_reset_values(void)
 {
   uint32_t i;
@@ -285,6 +412,16 @@ static void set_reset_values(void)
   nv_dirty();
 }
 
+/**
+ * @brief   Builds the QUERY STATUS answer.
+ * @details bit0 controlGearFailure, bit1 lampFailure, bit2 lampOn,
+ *          bit3 limitError, bit4 fadeRunning, bit5 resetState,
+ *          bit6 shortAddress = MASK, bit7 powerCycleSeen.
+ * @par     Parameters
+ *          None.
+ * @return  Status byte.
+ * @note    Context: SysTick.
+ */
 static uint8_t query_status(void)
 {
   uint8_t st = 0U;
@@ -320,6 +457,14 @@ static uint8_t query_status(void)
   return st;
 }
 
+/**
+ * @brief   Checks whether the address byte of a forward frame selects this gear.
+ * @details 0AAAAAAS short address, 100GGGGS group, 1111111S broadcast,
+ *          1111110S broadcast to gear without short address.
+ * @param[in] a  Address byte.
+ * @return  true if the command is for this gear.
+ * @note    Context: SysTick.
+ */
 static bool is_addressed(uint8_t a)
 {
   bool r;
@@ -347,11 +492,27 @@ static bool is_addressed(uint8_t a)
   return r;
 }
 
+/**
+ * @brief   Tells whether an address byte encodes a special command (0xA0..0xCB).
+ * @param[in] a  Address byte.
+ * @return  true for the special command range.
+ * @note    Context: SysTick.
+ */
 static bool is_special(uint8_t a)
 {
   return (a >= 0xA0U) && (a <= 0xCBU);
 }
 
+/**
+ * @brief   Tells whether a command must be received twice within 100 ms.
+ * @details Configuration commands 0x20..0x81, INITIALISE, RANDOMISE and the
+ *          DT6 configuration commands 0xE0..0xE4 (with device type 6 enabled).
+ * @param[in] a    Address byte.
+ * @param[in] d    Data (opcode) byte.
+ * @param[in] edt  Device type enabled by ENABLE DEVICE TYPE (DT_NONE if none).
+ * @return  true if the command is "send twice".
+ * @note    Context: SysTick.
+ */
 static bool needs_twice(uint8_t a, uint8_t d, uint8_t edt)
 {
   bool r = false;
@@ -374,6 +535,14 @@ static bool needs_twice(uint8_t a, uint8_t d, uint8_t edt)
 
 /* ---- memory bank access ----------------------------------------------------- */
 
+/**
+ * @brief   Increments DTR0 after a memory access, saturating at 255.
+ * @par     Parameters
+ *          None.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void inc_dtr0(void)
 {
   if (s_dtr0 < 0xFFU)
@@ -382,6 +551,17 @@ static void inc_dtr0(void)
   }
 }
 
+/**
+ * @brief   Executes READ MEMORY LOCATION (bank DTR1, location DTR0).
+ * @details Ignored if the bank is not implemented or DTR0 is beyond its last
+ *          location. Otherwise answers if the location is implemented and
+ *          increments DTR0 in any case.
+ * @par     Parameters
+ *          None.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void read_memory(void)
 {
   if (MB_IsImplemented(s_dtr1) && (s_dtr0 <= MB_LastLocation(s_dtr1)))
@@ -395,6 +575,16 @@ static void read_memory(void)
   }
 }
 
+/**
+ * @brief   Executes WRITE MEMORY LOCATION (- NO REPLY).
+ * @details Only with writeEnableState enabled and an implemented bank / location.
+ *          DTR0 is incremented even if the location is not writable.
+ * @param[in] value   Byte to write.
+ * @param[in] answer  true = answer with the written value.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void write_memory(uint8_t value, bool answer)
 {
   if (s_writeEnable && MB_IsImplemented(s_dtr1) && (s_dtr0 <= MB_LastLocation(s_dtr1)))
@@ -409,6 +599,15 @@ static void write_memory(uint8_t value, bool answer)
 
 /* ---- command handlers --------------------------------------------------------- */
 
+/**
+ * @brief   Direct arc power control.
+ * @details MASK (0xFF) stops a running fade. Other values fade to the clamped
+ *          level using the fade time, or 200 ms inside a DAPC sequence.
+ * @param[in] level  Requested level 0..254, or 0xFF.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void cmd_dapc(uint8_t level)
 {
   if (level == MASK)
@@ -425,6 +624,15 @@ static void cmd_dapc(uint8_t level)
   }
 }
 
+/**
+ * @brief   Executes UP / DOWN: 200 ms fade at the fade rate.
+ * @details Only when the lamp is on. UP stops at maxLevel, DOWN at minLevel
+ *          (DOWN never switches the lamp off).
+ * @param[in] up  true = UP, false = DOWN.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void cmd_up_down(bool up)
 {
   const uint8_t actual = Light_GetActualLevel();
@@ -451,6 +659,16 @@ static void cmd_up_down(bool up)
   }
 }
 
+/**
+ * @brief   Executes the arc power commands 0x00..0x1F.
+ * @details OFF, UP, DOWN, STEP UP / DOWN, RECALL MAX / MIN, STEP DOWN AND OFF,
+ *          ON AND STEP UP, ENABLE DAPC SEQUENCE, GO TO LAST ACTIVE LEVEL,
+ *          CONTINUOUS UP / DOWN, GO TO SCENE 0..15.
+ * @param[in] d  Opcode 0x00..0x1F.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void cmd_arc(uint8_t d)
 {
   const uint8_t actual = Light_GetActualLevel();
@@ -529,6 +747,19 @@ static void cmd_arc(uint8_t d)
   }
 }
 
+/**
+ * @brief   Executes the configuration commands 0x20..0x8F.
+ * @details RESET, STORE ACTUAL LEVEL IN DTR0, SAVE PERSISTENT VARIABLES, SET
+ *          OPERATING MODE, RESET MEMORY BANK, IDENTIFY DEVICE, SET MAX / MIN /
+ *          SYSTEM FAILURE / POWER ON LEVEL, SET FADE TIME / RATE / EXTENDED FADE
+ *          TIME, SET SCENE, REMOVE FROM SCENE, ADD TO / REMOVE FROM GROUP, SET
+ *          SHORT ADDRESS, ENABLE WRITE MEMORY. Reserved opcodes are ignored.
+ *          The send-twice condition is checked by the caller.
+ * @param[in] d  Opcode 0x20..0x8F.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void cmd_config(uint8_t d)
 {
   uint8_t v;
@@ -633,6 +864,16 @@ static void cmd_config(uint8_t d)
   }
 }
 
+/**
+ * @brief   Executes the query commands 0x90..0xDF and answers them.
+ * @details Status, presence, failures, version, DTR contents, device types,
+ *          physical minimum, levels, fade settings, scenes, groups, random
+ *          address and READ MEMORY LOCATION. Reserved opcodes are ignored.
+ * @param[in] d  Opcode 0x90..0xDF.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void cmd_query(uint8_t d)
 {
   if ((d >= 0xB0U) && (d <= 0xBFU))
@@ -693,7 +934,16 @@ static void cmd_query(uint8_t d)
   }
 }
 
-/* IEC 62386-207 ed.2 application extended commands */
+/**
+ * @brief   Executes the IEC 62386-207 ed.2 application extended commands.
+ * @details SELECT DIMMING CURVE, SET FAST FADE TIME, QUERY CONTROL GEAR TYPE,
+ *          QUERY DIMMING CURVE, QUERY FEATURES, QUERY FAILURE STATUS, QUERY
+ *          (MIN) FAST FADE TIME, QUERY EXTENDED VERSION NUMBER.
+ * @param[in] d  Opcode 0xE0..0xFF (called only with device type 6 enabled).
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void cmd_dt6(uint8_t d)
 {
   switch (d)
@@ -730,6 +980,18 @@ static void cmd_dt6(uint8_t d)
   }
 }
 
+/**
+ * @brief   Executes the special commands (address byte 0xA1..0xC9).
+ * @details TERMINATE, DTR0/1/2, INITIALISE, RANDOMISE, COMPARE, WITHDRAW, PING,
+ *          SEARCHADDRH/M/L, PROGRAM / VERIFY / QUERY SHORT ADDRESS, ENABLE
+ *          DEVICE TYPE, WRITE MEMORY LOCATION (- NO REPLY). Special commands
+ *          are addressed to every gear on the bus.
+ * @param[in] a  Address byte (command code).
+ * @param[in] d  Data byte.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void cmd_special(uint8_t a, uint8_t d)
 {
   const bool initOn = (s_initState != INIT_DISABLED);
@@ -812,7 +1074,17 @@ static void cmd_special(uint8_t a, uint8_t d)
   }
 }
 
-/* Commands that keep writeEnableState (memory bank access sequence) */
+/**
+ * @brief   Tells whether a command keeps writeEnableState enabled.
+ * @details Memory bank access sequences may interleave DTR0/1/2, ENABLE DEVICE
+ *          TYPE, WRITE / READ MEMORY LOCATION and QUERY CONTENT DTRx; any other
+ *          command disables the write access.
+ * @param[in] special  true if a is a special command.
+ * @param[in] a  Address byte.
+ * @param[in] d  Data (opcode) byte.
+ * @return  true if writeEnableState must be kept.
+ * @note    Context: SysTick.
+ */
 static bool keeps_write_enable(bool special, uint8_t a, uint8_t d)
 {
   bool keep;
@@ -828,6 +1100,19 @@ static bool keeps_write_enable(bool special, uint8_t a, uint8_t d)
   return keep;
 }
 
+/**
+ * @brief   Dispatches a validated 16-bit forward frame.
+ * @details Special commands, reserved address bytes (ignored), then commands
+ *          addressed to this gear: DAPC, arc power, configuration, queries and
+ *          DT6 extended commands. Maintains writeEnableState and the QUERY NEXT
+ *          DEVICE TYPE sequence.
+ * @param[in] a    Address byte.
+ * @param[in] d    Data byte.
+ * @param[in] edt  Device type enabled for this command (DT_NONE if none).
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void execute(uint8_t a, uint8_t d, uint8_t edt)
 {
   if (is_special(a))
@@ -891,6 +1176,20 @@ static void execute(uint8_t a, uint8_t d, uint8_t edt)
   }
 }
 
+/**
+ * @brief   Processes one frame delivered by the PHY.
+ * @details Frames that are not 16 bit (24-bit control device frames, backward
+ *          frames of other gear, errors) are ignored but break a send-twice
+ *          sequence. For 16-bit frames: consumes ENABLE DEVICE TYPE, mixes the
+ *          frame into the random generator, then executes the command directly,
+ *          or on the second identical frame within 100 ms for send-twice
+ *          commands.
+ * @param[in] f      Received frame.
+ * @param[in] nowMs  Reception time in ms.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick.
+ */
 static void handle_frame(const DALI_Frame_t *f, uint32_t nowMs)
 {
   if (f->bits != 16U)
@@ -933,6 +1232,7 @@ static void handle_frame(const DALI_Frame_t *f, uint32_t nowMs)
 
 /* ---- public API -------------------------------------------------------------- */
 
+/* Public API (full description in dali_gear.h): loads the DALI persistent variables. */
 void Gear_Init(void)
 {
   uint8_t uid[12];
@@ -963,6 +1263,7 @@ void Gear_Init(void)
   Light_SetCurve(s_nv.dimmingCurve);
 }
 
+/* Public API (full description in dali_gear.h): applies the power-on level. */
 void Gear_PowerOn(void)
 {
   const uint8_t level = (s_nv.powerOnLevel == MASK) ? s_nv.lastLightLevel : s_nv.powerOnLevel;
@@ -977,6 +1278,7 @@ void Gear_PowerOn(void)
   BSP_ExitCritical(pm);
 }
 
+/* Public API (full description in dali_gear.h): 1 ms control gear tick. */
 void Gear_Tick1ms(void)
 {
   const uint32_t now = BSP_GetTickMs();
@@ -1049,6 +1351,7 @@ void Gear_Tick1ms(void)
   }
 }
 
+/* Public API (full description in dali_gear.h): deferred save of the DALI variables. */
 void Gear_NvmService(void)
 {
   if (s_nvSaveNow || (s_nvDirty && ((BSP_GetTickMs() - s_nvDirtyMs) >= CFG_NVM_SAVE_DELAY_MS)))

@@ -6,6 +6,7 @@
  */
 #include "crc16.h"
 
+/* Public API (full description in crc16.h): CRC-16/CCITT-FALSE. */
 uint16_t CRC16_Compute(const uint8_t *data, uint32_t len)
 {
   uint16_t crc = 0xFFFFU;

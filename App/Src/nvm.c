@@ -46,7 +46,20 @@ typedef struct
 static NvmArea_t s_gearArea = { NVM_GEAR_BASE, NVM_GEAR_SLOT_SIZE, NVM_GEAR_SLOTS, 0U, 0U };
 static NvmArea_t s_cntArea  = { NVM_CNT_BASE, NVM_CNT_SLOT_SIZE, NVM_CNT_SLOTS, 0U, 0U };
 
-/* MISRA 11.5/11.3: conversion to a pointer to unsigned char is permitted. */
+/**
+ * @brief   Finds and loads the newest valid record of a redundant area.
+ * @details Reads every slot, checks its CRC and keeps the one with the highest
+ *          sequence number (signed 16-bit difference, wrap-around safe).
+ *          Updates area->current / area->seq so that the next save goes to the
+ *          following (oldest) slot.
+ * @param[in,out] area  Area descriptor (base, slot size, number of slots).
+ * @param[out]    data  Destination of the record payload, len bytes.
+ * @param[in]     len   Payload length (<= NVM_REC_MAX_DATA).
+ * @return  true if a valid record was found and copied, false otherwise.
+ * @note    Context: main loop only.
+ * @note    MISRA C:2012 Rules 11.3 / 11.5: callers pass structures as pointers to
+ * @note    unsigned char, which is permitted.
+ */
 static bool load_newest(NvmArea_t *area, uint8_t *data, uint8_t len)
 {
   uint8_t buf[NVM_REC_MAX_DATA + NVM_REC_OVERHEAD];
@@ -84,6 +97,17 @@ static bool load_newest(NvmArea_t *area, uint8_t *data, uint8_t len)
   return found;
 }
 
+/**
+ * @brief   Writes a record into the oldest slot of a redundant area.
+ * @details Record: sequence number (previous + 1), payload, CRC16. The payload
+ *          is written first and the CRC last, so an interrupted write leaves the
+ *          slot invalid and the previous record still valid.
+ * @param[in,out] area  Area descriptor; current slot / seq updated on success.
+ * @param[in]     data  Payload, len bytes.
+ * @param[in]     len   Payload length (<= NVM_REC_MAX_DATA).
+ * @return  true on success, false on EEPROM error.
+ * @note    Context: main loop only.
+ */
 static bool save_next(NvmArea_t *area, const uint8_t *data, uint8_t len)
 {
   uint8_t buf[NVM_REC_MAX_DATA + NVM_REC_OVERHEAD];
@@ -115,26 +139,31 @@ static bool save_next(NvmArea_t *area, const uint8_t *data, uint8_t len)
   return ok;
 }
 
+/* Public API (full description in nvm.h): loads the DALI variables. */
 bool NVM_LoadGear(NVM_Gear_t *gear)
 {
   return load_newest(&s_gearArea, (uint8_t *)gear, (uint8_t)sizeof(NVM_Gear_t));
 }
 
+/* Public API (full description in nvm.h): saves the DALI variables. */
 bool NVM_SaveGear(const NVM_Gear_t *gear)
 {
   return save_next(&s_gearArea, (const uint8_t *)gear, (uint8_t)sizeof(NVM_Gear_t));
 }
 
+/* Public API (full description in nvm.h): loads the counters. */
 bool NVM_LoadCounters(NVM_Counters_t *cnt)
 {
   return load_newest(&s_cntArea, (uint8_t *)cnt, (uint8_t)sizeof(NVM_Counters_t));
 }
 
+/* Public API (full description in nvm.h): saves the counters. */
 bool NVM_SaveCounters(const NVM_Counters_t *cnt)
 {
   return save_next(&s_cntArea, (const uint8_t *)cnt, (uint8_t)sizeof(NVM_Counters_t));
 }
 
+/* Public API (full description in nvm.h): loads memory bank 1. */
 bool NVM_LoadMb1(uint8_t data[NVM_MB1_SIZE])
 {
   uint8_t mark[2] = { 0U, 0U };
@@ -145,6 +174,7 @@ bool NVM_LoadMb1(uint8_t data[NVM_MB1_SIZE])
   return ok;
 }
 
+/* Public API (full description in nvm.h): saves memory bank 1. */
 bool NVM_SaveMb1(const uint8_t data[NVM_MB1_SIZE])
 {
   static const uint8_t mark[2] = { NVM_MB1_MARK_0, NVM_MB1_MARK_1 };
@@ -152,12 +182,14 @@ bool NVM_SaveMb1(const uint8_t data[NVM_MB1_SIZE])
          M24C04_Write(NVM_MB1_MARK_ADDR, mark, 2U);
 }
 
+/* Public API (full description in nvm.h): reads one variant record copy. */
 bool NVM_LoadVariantRecord(uint8_t rec[8], uint8_t copy)
 {
   const uint16_t addr = (uint16_t)(NVM_VARIANT_BASE + ((uint16_t)(copy & 1U) * NVM_VARIANT_SLOT_SIZE));
   return M24C04_Read(addr, rec, NVM_VARIANT_LEN);
 }
 
+/* Public API (full description in nvm.h): writes both variant record copies. */
 bool NVM_SaveVariantRecord(const uint8_t rec[8])
 {
   return M24C04_Write(NVM_VARIANT_BASE, rec, NVM_VARIANT_LEN) &&

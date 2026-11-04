@@ -58,6 +58,14 @@ static volatile bool s_txActive = false;
 static uint32_t s_txPattern;   /* bit i = 1: bus active (LOW) during half bit i */
 static uint8_t  s_txIdx;
 
+/**
+ * @brief   Samples the DALI bus level through MCU_RXD.
+ * @details Applies DALI_CFG_RX_INVERTED to convert the pin level to the bus level.
+ * @par     Parameters
+ *          None.
+ * @return  true if the bus is active (LOW), false if idle (HIGH).
+ * @note    Context: any.
+ */
 static bool bus_is_low(void)
 {
   const bool pinHigh = ((BSP_DALI_RX_PORT->IDR & BSP_PIN_MASK(BSP_DALI_RX_PIN)) != 0U);
@@ -68,6 +76,14 @@ static bool bus_is_low(void)
 #endif
 }
 
+/**
+ * @brief   Drives the DALI bus through MCU_TXD.
+ * @details Applies DALI_CFG_TX_ACTIVE_HIGH to convert the bus state to the pin level.
+ * @param[in] active  true: pull the bus LOW (active), false: release it (idle HIGH).
+ * @par     Return value
+ *          None (void).
+ * @note    Context: any. Atomic BSRR / BRR write.
+ */
 static void tx_bus_active(bool active)
 {
 #if (DALI_CFG_TX_ACTIVE_HIGH != 0)
@@ -85,6 +101,14 @@ static void tx_bus_active(bool active)
   }
 }
 
+/**
+ * @brief   Arms the TIM3 CC1 compare used as receive stop / quiet-bus timeout.
+ * @details Clears a pending CC1 flag and enables the CC1 interrupt.
+ * @param[in] at  Absolute TIM3 time (us, 16-bit wrap) of the timeout.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: DALI PHY interrupts / initialisation.
+ */
 static void rx_arm_timeout(uint16_t at)
 {
   TIM3->CCR1 = at;
@@ -92,6 +116,14 @@ static void rx_arm_timeout(uint16_t at)
   TIM3->DIER |= TIM_DIER_CC1IE;
 }
 
+/**
+ * @brief   Stores a completed (or failed) frame in the one-slot mailbox.
+ * @param[in] data  Received bits, MSB first, right aligned.
+ * @param[in] bits  Number of data bits, 0 for a framing / timing error.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: DALI PHY interrupts. Overwrites a non consumed frame.
+ */
 static void rx_publish(uint32_t data, uint8_t bits)
 {
   s_frame.data = data;
@@ -99,6 +131,7 @@ static void rx_publish(uint32_t data, uint8_t bits)
   s_frameReady = true;
 }
 
+/* Public API (full description in dali_phy.h): DALI transceiver initialisation. */
 void DALI_PHY_Init(void)
 {
   tx_bus_active(false);
@@ -130,6 +163,7 @@ void DALI_PHY_Init(void)
   rx_arm_timeout((uint16_t)((uint16_t)TIM3->CNT + RX_STOP_US));
 }
 
+/* Public API (full description in dali_phy.h): Manchester decoder, one call per RX edge. */
 void DALI_PHY_RxEdgeIrq(void)
 {
   const uint16_t now = (uint16_t)TIM3->CNT;
@@ -218,6 +252,18 @@ void DALI_PHY_RxEdgeIrq(void)
   }
 }
 
+/**
+ * @brief   Transmit state machine step, called on every TIM3 CC2 match.
+ * @details Indexes 0..17: outputs half bit n of the precomputed pattern and
+ *          schedules the next one 417 / 416 us later (average 416.5 us).
+ *          Index 18: releases the bus and waits the 2 stop bits.
+ *          Afterwards: disables CC2, ends the transmission, re-enables RX.
+ * @par     Parameters
+ *          None.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: TIM3 interrupt only.
+ */
 static void tx_step(void)
 {
   if (s_txIdx < TX_HALF_BITS)
@@ -241,6 +287,7 @@ static void tx_step(void)
   }
 }
 
+/* Public API (full description in dali_phy.h): RX timeout (CC1) and TX timing (CC2). */
 void DALI_PHY_TimerIrq(void)
 {
   const uint32_t sr = TIM3->SR;
@@ -279,6 +326,7 @@ void DALI_PHY_TimerIrq(void)
   }
 }
 
+/* Public API (full description in dali_phy.h): fetches the last received frame. */
 bool DALI_PHY_GetFrame(DALI_Frame_t *frame)
 {
   bool ready = false;
@@ -294,6 +342,7 @@ bool DALI_PHY_GetFrame(DALI_Frame_t *frame)
   return ready;
 }
 
+/* Public API (full description in dali_phy.h): schedules a backward frame. */
 void DALI_PHY_SendBackward(uint8_t value)
 {
   const uint16_t now = (uint16_t)TIM3->CNT;
@@ -321,11 +370,13 @@ void DALI_PHY_SendBackward(uint8_t value)
   }
 }
 
+/* Public API (full description in dali_phy.h): bus level sample. */
 bool DALI_PHY_IsBusIdle(void)
 {
   return !bus_is_low();
 }
 
+/* Public API (full description in dali_phy.h): 1 MHz free running time base. */
 uint16_t DALI_PHY_GetTimeUs(void)
 {
   return (uint16_t)TIM3->CNT;

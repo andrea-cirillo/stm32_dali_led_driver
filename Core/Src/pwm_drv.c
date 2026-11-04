@@ -8,6 +8,7 @@
 #include "bsp.h"
 #include "app_config.h"
 
+/* Public API (full description in pwm_drv.h): starts TIM14 CH1 PWM. */
 void PWM_DrvInit(void)
 {
   RCC->APB1ENR |= RCC_APB1ENR_TIM14EN;
@@ -23,6 +24,7 @@ void PWM_DrvInit(void)
   TIM14->CR1 |= TIM_CR1_CEN;
 }
 
+/* Public API (full description in pwm_drv.h): sets the PWM_OUT compare value. */
 void PWM_DrvSetDuty(uint16_t duty)
 {
   /* CCR > ARR gives a constant 100 % high output */

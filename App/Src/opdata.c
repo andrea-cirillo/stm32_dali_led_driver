@@ -24,16 +24,31 @@ static uint32_t s_energyMws = 0U;
 static uint32_t s_lastStartEvents = 0U;
 static volatile bool s_saveRequest = false;
 
+/**
+ * @brief   Increments a 32-bit counter with saturation.
+ * @details Saturates at 0xFFFFFFFD: 0xFFFFFFFE / 0xFFFFFFFF are reserved by
+ *          IEC 62386-253 (TMASK / MASK).
+ * @param[in] v  Current value.
+ * @return  v + 1, or v if already saturated.
+ * @note    Context: any.
+ */
 static uint32_t inc_sat(uint32_t v)
 {
   return (v < 0xFFFFFFFDUL) ? (v + 1UL) : v;
 }
 
+/**
+ * @brief   Increments an 8-bit failure counter with saturation at 0xFD.
+ * @param[in] v  Current value.
+ * @return  v + 1, or v if already saturated.
+ * @note    Context: any.
+ */
 static uint8_t inc_sat8(uint8_t v)
 {
   return (v < COUNTER_1B_MAX) ? (uint8_t)(v + 1U) : v;
 }
 
+/* Public API (full description in opdata.h): counters load and gear start count. */
 void OpData_Init(void)
 {
   if (!NVM_LoadCounters(&s_cnt))
@@ -57,6 +72,7 @@ void OpData_Init(void)
   s_lastStartEvents = Light_GetStartEvents();
 }
 
+/* Public API (full description in opdata.h): fault counters update. */
 void OpData_OnLightSourceFault(uint8_t failureBits)
 {
   const uint32_t pm = BSP_EnterCritical();
@@ -74,6 +90,7 @@ void OpData_OnLightSourceFault(uint8_t failureBits)
   s_saveRequest = true;
 }
 
+/* Public API (full description in opdata.h): 1 s accounting and periodic save. */
 void OpData_Service(void)
 {
   const uint32_t now = BSP_GetTickMs();
@@ -122,11 +139,13 @@ void OpData_Service(void)
   }
 }
 
+/* Public API (full description in opdata.h): read-only access to the counters. */
 const NVM_Counters_t *OpData_Get(void)
 {
   return &s_cnt;
 }
 
+/* Public API (full description in opdata.h): reset of the resettable counters. */
 void OpData_ResetResettable(void)
 {
   s_cnt.lsOnTimeResS = 0U;
@@ -134,6 +153,7 @@ void OpData_ResetResettable(void)
   s_saveRequest = true;
 }
 
+/* Public API (full description in opdata.h): byte write into a resettable counter. */
 void OpData_WriteResettableByte(uint8_t counter, uint8_t byteIdx, uint8_t nBytes, uint8_t value)
 {
   const uint32_t shift = 8UL * (uint32_t)((nBytes - 1U) - byteIdx);

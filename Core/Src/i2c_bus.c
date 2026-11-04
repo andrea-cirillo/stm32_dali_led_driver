@@ -16,6 +16,14 @@
 #define I2C_TIMINGR_100KHZ     (0x2000090EUL)
 #define I2C_TIMEOUT_MS         (5U)
 
+/**
+ * @brief   Waits until an I2C ISR flag is set, a NACK is received or the
+ * @details transfer timeout expires.
+ * @param[in] flag     ISR flag mask to wait for (TXIS, RXNE, TC, STOPF).
+ * @param[in] startMs  Start time of the whole transfer (BSP_GetTickMs()).
+ * @return  true when the flag is set, false on NACK or timeout (I2C_TIMEOUT_MS).
+ * @note    Context: main loop only.
+ */
 static bool wait_flag(uint32_t flag, uint32_t startMs)
 {
   bool ok = true;
@@ -35,6 +43,16 @@ static bool wait_flag(uint32_t flag, uint32_t startMs)
   return ok;
 }
 
+/**
+ * @brief   Software reset of I2C1 (PE cleared then set again).
+ * @details Clears the internal state machine and the status flags after a bus
+ *          error or a timeout. The configuration registers are preserved.
+ * @par     Parameters
+ *          None.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: main loop only. PE must stay low for >= 3 APB cycles.
+ */
 static void peripheral_reset(void)
 {
   I2C1->CR1 &= ~I2C_CR1_PE;
@@ -44,6 +62,7 @@ static void peripheral_reset(void)
   I2C1->CR1 |= I2C_CR1_PE;
 }
 
+/* Public API (full description in i2c_bus.h): I2C1 master at 100 kHz. */
 void I2C_BusInit(void)
 {
   RCC->APB1ENR |= RCC_APB1ENR_I2C1EN;
@@ -52,6 +71,14 @@ void I2C_BusInit(void)
   I2C1->CR1 = I2C_CR1_PE;
 }
 
+/**
+ * @brief   Terminates a failed transfer and classifies the error.
+ * @details On NACK a STOP is generated (if not automatic) and awaited; on any
+ *          other error the peripheral is reset. The error flags are cleared.
+ * @param[in] startMs  Start time of the transfer, bounds the STOP wait.
+ * @return  I2C_BUS_NACK if the slave did not acknowledge, I2C_BUS_TIMEOUT otherwise.
+ * @note    Context: main loop only.
+ */
 static I2C_BusStatus_t finish_error(uint32_t startMs)
 {
   I2C_BusStatus_t st = I2C_BUS_TIMEOUT;
@@ -78,6 +105,7 @@ static I2C_BusStatus_t finish_error(uint32_t startMs)
   return st;
 }
 
+/* Public API (full description in i2c_bus.h): write / read / write + read transfer. */
 I2C_BusStatus_t I2C_BusTransfer(uint8_t addr7,
                                 const uint8_t *wdata, uint8_t wlen,
                                 uint8_t *rdata, uint8_t rlen)

@@ -1,0 +1,15 @@
+# Doxygen configuration: run "doxygen" from the repository root.
+PROJECT_NAME           = "STM32F030F4 DALI-2 LED driver"
+OUTPUT_DIRECTORY       = build/doc
+INPUT                  = README.md Core/Inc Core/Src App/Inc App/Src
+EXCLUDE                = Core/Src/system_stm32f0xx.c
+FILE_PATTERNS          = *.c *.h *.md
+USE_MDFILE_AS_MAINPAGE = README.md
+EXTRACT_ALL            = NO
+EXTRACT_STATIC         = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_NO_PARAMDOC       = YES
+WARN_IF_DOC_ERROR      = YES
+GENERATE_LATEX         = NO
+QUIET                  = YES
+HAVE_DOT               = NO

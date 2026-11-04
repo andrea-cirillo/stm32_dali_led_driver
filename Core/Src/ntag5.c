@@ -13,6 +13,7 @@
 #include "i2c_bus.h"
 #include "app_config.h"
 
+/* Public API (full description in ntag5.h): reads NTAG 5 memory blocks. */
 bool NTAG5_ReadBlocks(uint16_t block_addr, uint8_t *buf, uint8_t len)
 {
   bool ok = false;
@@ -25,6 +26,7 @@ bool NTAG5_ReadBlocks(uint16_t block_addr, uint8_t *buf, uint8_t len)
   return ok;
 }
 
+/* Public API (full description in ntag5.h): masked session register write. */
 bool NTAG5_WriteReg(uint16_t reg_addr, uint8_t reg_byte, uint8_t mask, uint8_t value)
 {
   const uint8_t tx[5] = { (uint8_t)(reg_addr >> 8U), (uint8_t)reg_addr, reg_byte, mask, value };

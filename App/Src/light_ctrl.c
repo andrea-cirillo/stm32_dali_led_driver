@@ -38,11 +38,16 @@ static volatile uint32_t s_onTimeMs = 0U;
 static volatile uint32_t s_startEvents = 0U;
 static volatile uint16_t s_relCurrentQ16 = 0U;
 
-/*
- * Light output (Q16 fraction of full output) for a level in Q16.
- * Logarithmic: X(n) = 10^((n - 1) * 3 / 253 - 3)  (0.1 % .. 100 %)
- *            = 2^(-(254 - n) * 0.0393905)
- * Linear:      X(n) = n / 254
+/**
+ * @brief   Converts an arc power level into the relative light output.
+ * @details Logarithmic curve (IEC 62386-102):
+ *            X(n) = 10^((n - 1) * 3 / 253 - 3) = 2^(-(254 - n) * 0.0393905)
+ *            computed as 2^(-integer) * 2^(-fraction), the fractional power
+ *            from a 17-entry table with linear interpolation (error < 0.1 %).
+ *          Linear curve (IEC 62386-207): X(n) = n / 254.
+ * @param[in] levelQ16  Level in Q16 (level << 16, fractional during fades).
+ * @return  Relative output in Q16 (65535 = 100 %); 0 for level 0, 65 (0.1 %) for level 1.
+ * @note    Context: SysTick.
  */
 static uint16_t curve_output(int32_t levelQ16)
 {
@@ -72,7 +77,15 @@ static uint16_t curve_output(int32_t levelQ16)
   return (out > 65535UL) ? 65535U : (uint16_t)out;
 }
 
-/* PWM compare value for a relative current (Q16), linear interpolation */
+/**
+ * @brief   Converts a relative LED current into the PWM_OUT compare value.
+ * @details Linear interpolation of the calibration vector CFG_PWM_CAL_TABLE,
+ *          whose CFG_PWM_CAL_POINTS points are equally spaced between 0 % and
+ *          100 % of the nominal current. 100 % returns exactly the last point.
+ * @param[in] relQ16  Relative current in Q16 (65535 = 100 %).
+ * @return  PWM compare value 0..CFG_PWM_MAX_DUTY.
+ * @note    Context: SysTick.
+ */
 static uint16_t calibrated_duty(uint16_t relQ16)
 {
   const uint32_t pos = (uint32_t)relQ16 * (CFG_PWM_CAL_POINTS - 1U);
@@ -93,6 +106,18 @@ static uint16_t calibrated_duty(uint16_t relQ16)
   return (uint16_t)duty;
 }
 
+/**
+ * @brief   Updates power stage and PWM_OUT from the current level.
+ * @details Level 0, or fault latched: PWM at maximum duty and power stage OFF.
+ *          Otherwise: PWM from curve + calibration, power stage ON; counts the
+ *          off -> on transitions and the on time. While identifying the level
+ *          alternates between 254 and the identify minimum.
+ * @par     Parameters
+ *          None.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: SysTick (every 1 ms).
+ */
 static void output_update(void)
 {
   int32_t lvl = s_levelQ16;
@@ -128,6 +153,7 @@ static void output_update(void)
   }
 }
 
+/* Public API (full description in light_ctrl.h): light output initialisation (OFF). */
 void Light_Init(void)
 {
   PWM_DrvInit();
@@ -136,6 +162,7 @@ void Light_Init(void)
   output_update();
 }
 
+/* Public API (full description in light_ctrl.h): fade step and output update. */
 void Light_Tick1ms(void)
 {
   if (s_levelQ16 != s_targetQ16)
@@ -175,6 +202,7 @@ void Light_Tick1ms(void)
   output_update();
 }
 
+/* Public API (full description in light_ctrl.h): timed fade to a level. */
 void Light_FadeTo(uint8_t target, uint32_t fadeMs, uint8_t minLevel)
 {
   int32_t tgt = Q16(target);
@@ -208,6 +236,7 @@ void Light_FadeTo(uint8_t target, uint32_t fadeMs, uint8_t minLevel)
   }
 }
 
+/* Public API (full description in light_ctrl.h): constant rate fade. */
 void Light_FadeAtRate(uint8_t target, uint32_t stepQ16PerMs)
 {
   s_offAtEnd = false;
@@ -215,6 +244,7 @@ void Light_FadeAtRate(uint8_t target, uint32_t stepQ16PerMs)
   s_stepQ16 = (stepQ16PerMs == 0U) ? 1 : (int32_t)stepQ16PerMs;
 }
 
+/* Public API (full description in light_ctrl.h): stops the running fade. */
 void Light_StopFade(void)
 {
   /* stop on an integer level */
@@ -223,21 +253,25 @@ void Light_StopFade(void)
   s_offAtEnd = false;
 }
 
+/* Public API (full description in light_ctrl.h): DALI actualLevel. */
 uint8_t Light_GetActualLevel(void)
 {
   return (uint8_t)((uint32_t)(s_levelQ16 + 0x8000) >> 16U);
 }
 
+/* Public API (full description in light_ctrl.h): fade running flag. */
 bool Light_IsFading(void)
 {
   return (s_levelQ16 != s_targetQ16) || s_offAtEnd;
 }
 
+/* Public API (full description in light_ctrl.h): dimming curve selection. */
 void Light_SetCurve(uint8_t curve)
 {
   s_curve = (curve == LIGHT_CURVE_LINEAR) ? LIGHT_CURVE_LINEAR : LIGHT_CURVE_LOGARITHMIC;
 }
 
+/* Public API (full description in light_ctrl.h): identification on / off. */
 void Light_SetIdentify(bool enable, uint8_t minLevel)
 {
   s_identify = enable;
@@ -245,37 +279,44 @@ void Light_SetIdentify(bool enable, uint8_t minLevel)
   s_identifyMs = 0U;
 }
 
+/* Public API (full description in light_ctrl.h): identification state. */
 bool Light_IsIdentifying(void)
 {
   return s_identify;
 }
 
+/* Public API (full description in light_ctrl.h): latches the power stage OFF. */
 void Light_SetFaultLatch(void)
 {
   s_faultLatched = true;
   BSP_PowerStageEnable(false);
 }
 
+/* Public API (full description in light_ctrl.h): fault latch state. */
 bool Light_IsFaultLatched(void)
 {
   return s_faultLatched;
 }
 
+/* Public API (full description in light_ctrl.h): lamp physically lit. */
 bool Light_IsLampOn(void)
 {
   return s_lampOn;
 }
 
+/* Public API (full description in light_ctrl.h): time since switch-on. */
 uint32_t Light_GetOnTimeMs(void)
 {
   return s_onTimeMs;
 }
 
+/* Public API (full description in light_ctrl.h): switch-on event counter. */
 uint32_t Light_GetStartEvents(void)
 {
   return s_startEvents;
 }
 
+/* Public API (full description in light_ctrl.h): requested relative current. */
 uint16_t Light_GetRelativeCurrentQ16(void)
 {
   return s_relCurrentQ16;

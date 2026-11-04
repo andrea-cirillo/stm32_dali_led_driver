@@ -20,7 +20,9 @@ DEFS   := -DSTM32F030x6
 CFLAGS := $(MCU) $(DEFS) $(INCS) -std=c99 -Os -g3 \
           -ffunction-sections -fdata-sections -fno-common \
           -Wall -Wextra -Wconversion -Wshadow -Wundef -Wstrict-prototypes
-LDFLAGS := $(MCU) -TSTM32F030F4PX_FLASH.ld --specs=nano.specs \
+# Same options as STM32CubeIDE: nano + nosys specs, -nostartfiles (the own
+# startup file replaces crt0, see Core/Startup).
+LDFLAGS := $(MCU) -TSTM32F030F4PX_FLASH.ld --specs=nano.specs --specs=nosys.specs -nostartfiles \
            -Wl,--gc-sections -Wl,-Map=$(BUILD)/$(TARGET).map -Wl,--print-memory-usage
 
 OBJS := $(addprefix $(BUILD)/,$(SRCS:.c=.o)) $(addprefix $(BUILD)/,$(ASMS:.s=.o))

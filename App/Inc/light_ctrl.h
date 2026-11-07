@@ -143,7 +143,8 @@ bool Light_IsIdentifying(void);
 
 /**
  * @brief   Latches the power stage OFF until the next reset.
- * @details Sets the latch flag and drives OFF HIGH immediately. From then
+ * @details Sets the latch flag and disables the power stage immediately
+ *          (OFF driven to its disable level). From then
  *          on the output stage ignores every level request (the DALI
  *          variables keep being updated).
  * @par     Parameters

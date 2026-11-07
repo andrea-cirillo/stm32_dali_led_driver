@@ -39,6 +39,21 @@
 #endif
 
 /* ========================================================================== */
+/* Power stage control (OFF signal, PA3)                                      */
+/* ========================================================================== */
+/*
+ * CFG_OFF_ENABLE_HIGH
+ *   1 (default, current hardware): OFF = HIGH turns Q5 on and ENABLES the
+ *     power stage, OFF = LOW disables it. At reset PA3 is a floating input
+ *     and R28 keeps Q5 off, so the converter stays disabled until the
+ *     firmware enables it (fail-safe).
+ *   0: inverted hardware, OFF = HIGH disables the power stage.
+ */
+#ifndef CFG_OFF_ENABLE_HIGH
+#define CFG_OFF_ENABLE_HIGH            (1)
+#endif
+
+/* ========================================================================== */
 /* Product / manufacturer information (IEC 62386-102 memory bank 0)          */
 /* PLACEHOLDER values: replace with the real product data.                    */
 /* ========================================================================== */

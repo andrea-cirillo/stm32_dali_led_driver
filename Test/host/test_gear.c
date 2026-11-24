@@ -121,7 +121,7 @@ static void test_off_on(void)
   printf("DAPC off / on\n");
   (void)send(BC_DAPC, 0U);
   CHECK(!g_powerStage);
-  CHECK_EQ(g_pwmDuty, 4096);
+  CHECK_EQ(g_pwmDuty, CFG_PWM_MAX_DUTY);   /* CFG_PWM_DUTY_WHEN_OFF = 100 % */
   CHECK_EQ(send(BC, 0x93), -1);             /* LAMP POWER ON: no */
   CHECK_EQ(send(BC, 0x9B), -1);             /* power failure cleared */
   (void)send(BC_DAPC, 254U);
@@ -193,13 +193,13 @@ static void test_fade(void)
   DTR0(1U);
   (void)send2(SA(5), 0x2E);                 /* fade time 1 = 0.707 s */
   CHECK_EQ(send(SA(5), 0xA5), 0x17);        /* fade time 1, rate 7 */
-  (void)send(SA_DAPC(5), 100U);
+  (void)send(SA_DAPC(5), 180U);
   tick(300U);
   lvl = send(SA(5), 0xA0);
-  CHECK((lvl > 100) && (lvl < 200));
+  CHECK((lvl > 180) && (lvl < 254));
   CHECK((send(SA(5), 0x90) & 0x10) != 0);   /* fade running */
   tick(500U);
-  CHECK_EQ(send(SA(5), 0xA0), 100);
+  CHECK_EQ(send(SA(5), 0xA0), 180);
   CHECK((send(SA(5), 0x90) & 0x10) == 0);
 
   (void)send(SA_DAPC(5), 0U);               /* fade to off */
@@ -214,13 +214,13 @@ static void test_fade(void)
   (void)send(SA_DAPC(5), 10U);              /* below min -> min */
   CHECK_EQ(send(SA(5), 0xA0), CFG_PHYSICAL_MIN_LEVEL);
   CHECK_EQ(send(SA(5), 0x94), 0xFF);        /* limit error */
-  (void)send(SA_DAPC(5), 100U);
+  (void)send(SA_DAPC(5), 170U);
   CHECK_EQ(send(SA(5), 0x94), -1);
 
   (void)send(SA(5), 0x01);                  /* UP: 200 ms at 44.7 steps/s */
   tick(300U);
   lvl = send(SA(5), 0xA0);
-  CHECK((lvl >= 108) && (lvl <= 110));
+  CHECK((lvl >= 178) && (lvl <= 180));
   (void)send(SA(5), 0x04);                  /* STEP DOWN */
   CHECK_EQ(send(SA(5), 0xA0), lvl - 1);
   (void)send(SA(5), 0x05);                  /* RECALL MAX */
@@ -240,21 +240,21 @@ static void test_groups_scenes(void)
   printf("groups / scenes\n");
   (void)send2(SA(5), 0x63);                 /* ADD TO GROUP 3 */
   CHECK_EQ(send(SA(5), 0xC0), 0x08);
-  (void)send((uint8_t)(0x80U | (3U << 1)), 150U);  /* group 3 DAPC */
-  CHECK_EQ(send(SA(5), 0xA0), 150);
-  (void)send((uint8_t)(0x80U | (4U << 1)), 120U);  /* group 4: not member */
-  CHECK_EQ(send(SA(5), 0xA0), 150);
+  (void)send((uint8_t)(0x80U | (3U << 1)), 195U);  /* group 3 DAPC */
+  CHECK_EQ(send(SA(5), 0xA0), 195);
+  (void)send((uint8_t)(0x80U | (4U << 1)), 180U);  /* group 4: not member */
+  CHECK_EQ(send(SA(5), 0xA0), 195);
   (void)send2(SA(5), 0x73);                 /* REMOVE FROM GROUP 3 */
   CHECK_EQ(send(SA(5), 0xC0), 0x00);
 
-  DTR0(120U);
+  DTR0(180U);
   (void)send2(SA(5), 0x42);                 /* SET SCENE 2 */
-  CHECK_EQ(send(SA(5), 0xB2), 120);
+  CHECK_EQ(send(SA(5), 0xB2), 180);
   CHECK_EQ(send(SA(5), 0xB3), 0xFF);
   (void)send(SA(5), 0x12);                  /* GO TO SCENE 2 */
-  CHECK_EQ(send(SA(5), 0xA0), 120);
+  CHECK_EQ(send(SA(5), 0xA0), 180);
   (void)send(SA(5), 0x13);                  /* scene 3 = MASK: no change */
-  CHECK_EQ(send(SA(5), 0xA0), 120);
+  CHECK_EQ(send(SA(5), 0xA0), 180);
 }
 
 static void test_device_types(void)
@@ -283,22 +283,29 @@ static void test_device_types(void)
   (void)send2(SA(5), 0xE3);                 /* SELECT DIMMING CURVE linear */
   (void)send(0xC1U, 6U);
   CHECK_EQ(send(SA(5), 0xEE), 1);
+  CHECK_EQ(send(SA(5), 0x9A), CFG_PHYSICAL_MIN_LEVEL_LINEAR);  /* PHM follows curve */
+  CHECK_EQ(send(SA(5), 0xA2), CFG_PHYSICAL_MIN_LEVEL_LINEAR);  /* min level followed */
   (void)send(SA_DAPC(5), 127U);
-  CHECK((g_pwmDuty >= 2040U) && (g_pwmDuty <= 2056U));   /* 50 % */
+  CHECK((g_pwmDuty >= 24530U) && (g_pwmDuty <= 24630U)); /* 50 % */
+  (void)send(SA_DAPC(5), 19U);              /* linear PHM: 7.48 % */
+  CHECK((g_pwmDuty >= 45420U) && (g_pwmDuty <= 45520U));
   DTR0(0U);
   (void)send(0xC1U, 6U);
   (void)send2(SA(5), 0xE3);
+  CHECK_EQ(send(SA(5), 0x9A), CFG_PHYSICAL_MIN_LEVEL);
+  CHECK_EQ(send(SA(5), 0xA2), CFG_PHYSICAL_MIN_LEVEL);
+  CHECK_EQ(send(SA(5), 0xA0), CFG_PHYSICAL_MIN_LEVEL);  /* raised to new min */
   (void)send(SA_DAPC(5), 170U);             /* log: 10 % */
-  CHECK((g_pwmDuty >= 3680U) && (g_pwmDuty <= 3692U));
+  CHECK((g_pwmDuty >= 44180U) && (g_pwmDuty <= 44290U));
 
   DTR0(4U);
   (void)send(0xC1U, 6U);
   (void)send2(SA(5), 0xE4);                 /* SET FAST FADE TIME 100 ms */
   (void)send(0xC1U, 6U);
   CHECK_EQ(send(SA(5), 0xFD), 4);
-  (void)send(SA_DAPC(5), 100U);
+  (void)send(SA_DAPC(5), 190U);
   tick(110U);
-  CHECK_EQ(send(SA(5), 0xA0), 100);
+  CHECK_EQ(send(SA(5), 0xA0), 190);
   DTR0(0U);
   (void)send(0xC1U, 6U);
   (void)send2(SA(5), 0xE4);
@@ -393,11 +400,49 @@ static void test_memory_banks(void)
   CHECK_EQ(s_cnt.lsOnTimeResS, 0);
 }
 
+/*
+ * DALI level vs PWM_OUT duty measured on the existing hardware (preliminary
+ * software, logarithmic curve, level = percentage * 254 / 100). The firmware
+ * must reproduce it within 0.6 % duty (measurement resolution).
+ */
+static void test_measured_duty(void)
+{
+  static const struct { uint8_t pct; uint16_t duty01; } k_meas[] = {
+    {100U, 0U}, {95U, 3000U}, {90U, 5000U}, {85U, 6500U}, {80U, 7520U},
+    {75U, 8250U}, {70U, 8780U}, {65U, 9120U}, {60U, 9250U}, {55U, 9250U},
+    {50U, 9250U}, {45U, 9250U}, {40U, 9250U}, {30U, 9250U}, {20U, 9250U},
+    {10U, 9250U}, {5U, 9250U}
+  };
+  size_t i;
+
+  printf("measured level vs duty\n");
+  (void)send(BC, 0x05);                     /* RECALL MAX LEVEL, no fade */
+  for (i = 0U; i < (sizeof(k_meas) / sizeof(k_meas[0])); i++)
+  {
+    const uint8_t lvl = (uint8_t)(((uint32_t)k_meas[i].pct * 254U + 50U) / 100U);
+    long duty01;
+    (void)send(BC_DAPC, lvl);
+    tick(100U);
+    duty01 = ((long)g_pwmDuty * 10000L + (long)(CFG_PWM_MAX_DUTY / 2U)) / (long)CFG_PWM_MAX_DUTY;
+    CHECK(g_powerStage);
+    CHECK((duty01 >= ((long)k_meas[i].duty01 - 60L)) && (duty01 <= ((long)k_meas[i].duty01 + 60L)));
+    if ((duty01 < ((long)k_meas[i].duty01 - 60L)) || (duty01 > ((long)k_meas[i].duty01 + 60L)))
+    {
+      printf("  %u %%: duty %ld (expected %u)\n", k_meas[i].pct, duty01, k_meas[i].duty01);
+    }
+  }
+  (void)send(BC_DAPC, 0U);
+  tick(100U);
+  CHECK(!g_powerStage);                     /* 0 %: OFF LOW */
+  (void)send(BC_DAPC, 254U);
+  tick(100U);
+}
+
 static void test_reset_and_nvm(void)
 {
   printf("reset / persistence\n");
-  DTR0(100U);
-  (void)send2(SA(5), 0x2C);                 /* SYSTEM FAILURE LEVEL 100 */
+  DTR0(190U);
+  (void)send2(SA(5), 0x2C);                 /* SYSTEM FAILURE LEVEL 190 */
   CHECK_EQ(send(SA(5), 0x95), -1);          /* not in reset state */
   tick(CFG_NVM_SAVE_DELAY_MS + 10U);
   Gear_NvmService();
@@ -406,7 +451,7 @@ static void test_reset_and_nvm(void)
   Gear_Init();
   Gear_PowerOn();
   tick(5U);
-  CHECK_EQ(send(SA(5), 0xA4), 100);
+  CHECK_EQ(send(SA(5), 0xA4), 190);
   CHECK_EQ(send(SA(5), 0xA1), 200);
   CHECK_EQ(send(SA(5), 0x9B), 0xFF);        /* power cycle seen */
 
@@ -415,16 +460,16 @@ static void test_reset_and_nvm(void)
   tick(600U);
   s_busIdle = true;
   tick(5U);
-  CHECK_EQ(send(SA(5), 0xA0), 100);
+  CHECK_EQ(send(SA(5), 0xA0), 190);
 
   printf("identify\n");
   (void)send2(SA(5), 0x25);
   tick(100U);
   CHECK_EQ(g_pwmDuty, 0);                   /* first half: max */
   tick(500U);
-  CHECK(g_pwmDuty > 3000U);                 /* second half: min */
+  CHECK(g_pwmDuty > 45000U);                /* second half: min (PHM) */
   tick(10000U);
-  CHECK_EQ(send(SA(5), 0xA0), 100);
+  CHECK_EQ(send(SA(5), 0xA0), 190);
 
   printf("RESET\n");
   (void)send2(SA(5), 0x20);
@@ -487,6 +532,7 @@ int main(void)
 
   test_power_on();
   test_off_on();
+  test_measured_duty();
   test_addressing();
   test_send_twice();
   test_fade();

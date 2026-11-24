@@ -28,7 +28,7 @@ factory calibration) and Rule 11.3/11.5 for byte access to the NVM structures.
 | PA0  | NFC_EventDetect   | NTAG 5 ED pin, EXTI0 falling edge                       |
 | PA1  | uVLED             | ADC_IN1, LED voltage (divider 826.2k / 6.2k)            |
 | PA3  | OFF               | HIGH = power stage on, LOW = off (`CFG_OFF_ENABLE_HIGH`) |
-| PA4  | PWM_OUT           | TIM14 CH1, 11.7 kHz / 12 bit, higher duty = lower current |
+| PA4  | PWM_OUT           | TIM14 CH1, 244 Hz / 49152 steps, higher duty = lower current |
 | PA6  | STCP              | SN74HCS596 storage clock                                |
 | PA7  | SHCP              | SN74HCS596 shift clock                                  |
 | PB1  | CurrentLimit_DS   | SN74HCS596 serial data                                  |
@@ -76,7 +76,8 @@ allowed window is 5.5 to 10.5 ms).
 1. `OFF` is driven LOW (power stage disabled) as the first instruction. The
    stage is already off before that, because R28 keeps Q5 off while PA3
    floats during reset.
-2. The clock and GPIO are set up, then PWM is set to maximum duty (minimum current).
+2. The clock and GPIO are set up, then PWM_OUT is set to `CFG_PWM_DUTY_WHEN_OFF`
+   (default 100 %, minimum current reference).
 3. The shift register is written with the default variant (lowest current).
 4. The variant is read from the EEPROM. If the NTAG 5 holds a valid, different
    record, that record is stored first. The shift register is then written
@@ -93,10 +94,12 @@ Every value marked **PLACEHOLDER** must be replaced:
 - GTIN, firmware and hardware versions (memory bank 0). The identification
   number is derived from the STM32 UID, so it is unique for every device.
 - Memory bank 1 factory defaults (IEC 62386-251).
-- `CFG_PHYSICAL_MIN_LEVEL` (PHM).
 - `CFG_PWM_CAL_TABLE`: the calibration vector. It has 11 points at 0..100 %
-  of the nominal current; each point holds the PWM compare value (0..4096),
-  and values between points are interpolated linearly.
+  of the nominal current; each point holds the PWM_OUT duty in 0.01 %
+  (0..10000), so the table does not depend on the PWM frequency. Values
+  between points are interpolated linearly. The default is the ideal linear
+  characteristic I = Inom × (1 − duty); replace it with the LED current
+  measured against the duty (see "Dimming characteristic").
 - `CFG_VARIANT_NOMINAL_CURRENT_MA`: the nominal current of each variant, used
   only for the 252/253 estimates.
 - Fault thresholds: `CFG_FAULT_*_MV`, blanking time and debounce.
@@ -104,6 +107,53 @@ Every value marked **PLACEHOLDER** must be replaced:
 - DALI interface polarity: `DALI_CFG_TX_ACTIVE_HIGH` (default 1: TXD HIGH
   pulls the bus low) and `DALI_CFG_RX_INVERTED` (default 0: RXD follows the
   bus level). Both can be overridden on the compiler command line.
+
+## Dimming characteristic
+
+The chain is: DALI level → dimming curve → relative current X → calibration
+vector → PWM_OUT duty, with I = Inom × (1 − duty) by default.
+
+- **Curves**: logarithmic (IEC 62386-102), X(n) = 10^(3 × (n − 1) / 253 − 3) (1 = 100 %),
+  or linear (IEC 62386-207, `SELECT DIMMING CURVE`), X(n) = n / 254.
+- **PWM_OUT**: 48 MHz / (4 × 49152) = 244.14 Hz (`CFG_PWM_PRESCALER`,
+  `CFG_PWM_PERIOD_COUNTS`), the frequency of the existing hardware.
+- **Physical minimum level**: the hardware minimum is 7.5 % of the variant
+  current (duty 92.5 %). This is PHM = 159 on the logarithmic curve
+  (`CFG_PHYSICAL_MIN_LEVEL`) and PHM = 19 on the linear curve
+  (`CFG_PHYSICAL_MIN_LEVEL_LINEAR`). `QUERY PHYSICAL MINIMUM` reports the
+  value of the selected curve. When the curve changes, a MIN LEVEL that was
+  at the old PHM follows the new PHM, and a lower MIN LEVEL is raised to it.
+  Levels below MIN LEVEL are clamped to MIN LEVEL as IEC 62386-102 requires.
+- **Off**: level 0 or a fault drives `OFF` LOW and PWM_OUT to
+  `CFG_PWM_DUTY_WHEN_OFF`. Every level > 0 drives `OFF` HIGH.
+
+Measured on the existing hardware with the preliminary software (logarithmic
+curve), compared with this firmware. Level = command % × 254 / 100. The host
+test `test_measured_duty` checks every point within ±0.6 % duty:
+
+| DALI cmd | Level | Measured duty | Firmware duty | `OFF` |
+|---------:|------:|--------------:|--------------:|:-----:|
+| 100 %    | 254   | 0 %           | 0 %           | HIGH  |
+| 95 %     | 241   | 30 %          | 29.9 %        | HIGH  |
+| 90 %     | 229   | 50 %          | 49.5 %        | HIGH  |
+| 85 %     | 216   | 65 %          | 64.6 %        | HIGH  |
+| 80 %     | 203   | 75.2 %        | 75.2 %        | HIGH  |
+| 75 %     | 191   | 82.5 %        | 82.1 %        | HIGH  |
+| 70 %     | 178   | 87.8 %        | 87.5 %        | HIGH  |
+| 65 %     | 165   | 91.2 %        | 91.2 %        | HIGH  |
+| 5..60 %  | 13..152 → 159 | 92.5 % | 92.5 %        | HIGH  |
+| 0 %      | 0     | 0 %           | 100 % (`CFG_PWM_DUTY_WHEN_OFF`) | LOW |
+
+The only intended difference is the duty while off. The preliminary software
+drives 0 % (maximum current reference); this firmware drives 100 % by default,
+so that when `OFF` goes HIGH the PWM_OUT filter starts from the minimum
+current instead of producing a flash at full current until it settles. Set
+`CFG_PWM_DUTY_WHEN_OFF` to 0 to replicate the old behaviour.
+
+These measurements validate the level → duty mapping of the software, not
+the duty → LED current characteristic of the hardware. The calibration vector
+still has to be filled with the LED current measured at 0, 10, ... 100 %
+duty steps for each variant.
 
 ## Lamp variant and NFC
 
@@ -179,6 +229,8 @@ is gone, normal operation resumes.
   CONTROL GEAR TYPE, QUERY DIMMING CURVE, QUERY FEATURES, QUERY FAILURE
   STATUS, QUERY (MIN) FAST FADE TIME and QUERY EXTENDED VERSION NUMBER. The
   ed.1 commands that ed.2 removed are ignored.
+- **Physical minimum level**: depends on the selected dimming curve (159
+  logarithmic, 19 linear), see "Dimming characteristic".
 - **Fade time priority**: fade time > 0 is used first, then the 207 fast fade
   time if not 0, then the 102 extended fade time.
 - **Not measured, reported as MASK in 253**: supply voltage, frequency, power
@@ -193,8 +245,8 @@ is gone, normal operation resumes.
 
 ## Build
 
-- **STM32CubeIDE**: import the project. Debug builds with `-Og` (~14.9 KB,
-  91 %) and Release with `-Os` (~13.0 KB, 79 %). The linker runs with
+- **STM32CubeIDE**: import the project. Debug builds with `-Og` (~15.2 KB,
+  93 %) and Release with `-Os` (~13.2 KB, 81 %). The linker runs with
   `-nostartfiles` (MCU GCC Linker > Miscellaneous > Other flags): the
   project's own startup file replaces the toolchain `crt0`. Without this
   flag, `crt0` pulls in the newlib exit / stdio code and the linker warns

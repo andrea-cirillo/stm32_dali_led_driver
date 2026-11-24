@@ -1,7 +1,8 @@
 /**
  ******************************************************************************
  * @file    pwm_drv.h
- * @brief   PWM_OUT (PA4, TIM14 CH1) driver. 48 MHz / CFG_PWM_PERIOD_COUNTS.
+ * @brief   PWM_OUT (PA4, TIM14 CH1) driver,
+ *          48 MHz / (CFG_PWM_PRESCALER * CFG_PWM_PERIOD_COUNTS) = 244.14 Hz.
  *          Higher duty = lower LED current (PWM_OUT offsets CS_out).
  ******************************************************************************
  */
@@ -12,7 +13,8 @@
 
 /**
  * @brief   Starts TIM14 CH1 in PWM mode 1 with preload.
- * @details Period = CFG_PWM_PERIOD_COUNTS timer clocks (11.7 kHz with 4096),
+ * @details Timer clock 48 MHz / CFG_PWM_PRESCALER, period
+ *          CFG_PWM_PERIOD_COUNTS (244.14 Hz with 4 x 49152),
  *          initial duty = CFG_PWM_MAX_DUTY (100 %, i.e. minimum LED current).
  * @par     Parameters
  *          None.

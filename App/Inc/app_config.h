@@ -99,29 +99,66 @@
 /* ========================================================================== */
 /* Dimming / light output                                                     */
 /* ========================================================================== */
-/* PLACEHOLDER: physical minimum level (PHM, 1..254) reachable by hardware.   */
-#define CFG_PHYSICAL_MIN_LEVEL         (85U)
+/*
+ * Physical minimum level (PHM, 1..254) reachable by the hardware.
+ * Derived from the measurements on the existing hardware: the minimum output
+ * is reached at PWM_OUT duty 92.5 %, i.e. 7.5 % of the variant current.
+ * On the logarithmic curve X(159) = 7.46 % (duty 92.54 %), so PHM = 159
+ * (about 62.6 % of the arc power range). Every level below MIN LEVEL is
+ * clamped to MIN LEVEL (>= PHM) by IEC 62386-102, which reproduces the flat
+ * 92.5 % zone measured between 5 % and 60 %.
+ * NOTE: confirm on the bench that 7.5 % is the real hardware limit and not
+ * only a choice of the preliminary software.
+ */
+#define CFG_PHYSICAL_MIN_LEVEL         (159U)
+
+/*
+ * PHM with the IEC 62386-207 linear dimming curve: same minimum output
+ * (7.5 %), X(n) = n / 254 -> n = 19 (7.48 %, duty 92.52 %).
+ */
+#define CFG_PHYSICAL_MIN_LEVEL_LINEAR  (19U)
 
 /* Minimum fast fade time supported (IEC 62386-207, units of 25 ms, 1..27).   */
 #define CFG_MIN_FAST_FADE_TIME         (1U)
 
-/* PWM_OUT (TIM14 CH1) resolution: 48 MHz / 4096 = 11.7 kHz, 12 bit.          */
-#define CFG_PWM_PERIOD_COUNTS          (4096U)
+/*
+ * PWM_OUT (TIM14 CH1): f = 48 MHz / (CFG_PWM_PRESCALER * CFG_PWM_PERIOD_COUNTS)
+ * = 48 MHz / (4 * 49152) = 244.14 Hz, the frequency of the existing hardware
+ * (the PWM_OUT filter is designed for it). Resolution 49152 steps (15.6 bit).
+ * CFG_PWM_PERIOD_COUNTS must be <= 65535 (CCR = period gives 100 % duty).
+ */
+#define CFG_PWM_PRESCALER              (4U)
+#define CFG_PWM_PERIOD_COUNTS          (49152U)
 #define CFG_PWM_MAX_DUTY               (CFG_PWM_PERIOD_COUNTS)
+
+/* Duty units used by the configuration: 0.01 % (10000 = 100 %).            */
+#define CFG_PWM_DUTY_FULL_SCALE        (10000U)
+
+/*
+ * PWM_OUT duty while the power stage is off (level 0, fault), in 0.01 %.
+ * 10000 (100 %, minimum current reference) is the default: when OFF goes
+ * HIGH the PWM_OUT filter starts from the minimum current and settles to the
+ * target (soft start). The preliminary software used 0 % (maximum current
+ * reference): with a 244 Hz filter this can cause a flash at full current at
+ * every switch-on until the filter settles. Set 0 only to replicate it.
+ */
+#define CFG_PWM_DUTY_WHEN_OFF          (10000U)
 
 /*
  * Output current calibration vector (linear, calibratable).
  * CFG_PWM_CAL_POINTS points equally spaced in relative output current
  * (0 %, 10 %, ... 100 % of the nominal variant current). Each entry is the
- * PWM_OUT compare value (0..CFG_PWM_MAX_DUTY) that produces that current.
+ * PWM_OUT duty in 0.01 % (0..10000) that produces that current.
  * Higher duty = lower LED current (PWM_OUT offsets the current sense).
  * Values between two points are linearly interpolated.
- * PLACEHOLDER: ideal linear characteristic, replace with measured data.
+ * Default: I = Inom * (1 - duty), the relation used by the preliminary
+ * software (DALI level vs duty measured on the existing hardware matches it
+ * within 0.5 % duty). PLACEHOLDER: replace with LED current measured vs duty.
  */
 #define CFG_PWM_CAL_POINTS             (11U)
 #define CFG_PWM_CAL_TABLE                                                     \
   {                                                                           \
-    4096U, 3686U, 3277U, 2867U, 2458U, 2048U, 1638U, 1229U, 819U, 410U, 0U    \
+    10000U, 9000U, 8000U, 7000U, 6000U, 5000U, 4000U, 3000U, 2000U, 1000U, 0U \
   }
 
 /* ========================================================================== */

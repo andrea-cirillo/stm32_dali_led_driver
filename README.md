@@ -27,7 +27,7 @@ factory calibration) and Rule 11.3/11.5 for byte access to the NVM structures.
 | PF1  | MCU_RXD           | DALI receive (EXTI1, TIM3 1 MHz time stamps)            |
 | PA0  | NFC_EventDetect   | NTAG 5 ED pin, EXTI0 falling edge                       |
 | PA1  | uVLED             | ADC_IN1, LED voltage (divider 826.2k / 6.2k)            |
-| PA3  | OFF               | HIGH = power stage off                                  |
+| PA3  | OFF               | HIGH = power stage on, LOW = off (`CFG_OFF_ENABLE_HIGH`) |
 | PA4  | PWM_OUT           | TIM14 CH1, 11.7 kHz / 12 bit, higher duty = lower current |
 | PA6  | STCP              | SN74HCS596 storage clock                                |
 | PA7  | SHCP              | SN74HCS596 shift clock                                  |
@@ -73,7 +73,9 @@ allowed window is 5.5 to 10.5 ms).
 
 ## Boot sequence
 
-1. `OFF` is driven HIGH as the first instruction, so the power stage stays off.
+1. `OFF` is driven LOW (power stage disabled) as the first instruction. The
+   stage is already off before that, because R28 keeps Q5 off while PA3
+   floats during reset.
 2. The clock and GPIO are set up, then PWM is set to maximum duty (minimum current).
 3. The shift register is written with the default variant (lowest current).
 4. The variant is read from the EEPROM. If the NTAG 5 holds a valid, different
@@ -164,7 +166,7 @@ consecutive samples (100 ms):
 | V_LED > over-voltage threshold  | load increase (bit 3)            |
 | V_LED < under-voltage threshold | load decrease (bit 2)            |
 
-Every confirmed fault latches `OFF` until the next reset. lampFailure is set,
+Every confirmed fault latches the power stage off (`OFF` LOW) until the next reset. lampFailure is set,
 and the 253 counters (overall, short, open) are incremented and saved. After
 a restart, the converter switches on again and the check repeats: if the fault
 is gone, normal operation resumes.
@@ -216,11 +218,10 @@ is gone, normal operation resumes.
 
 1. **Shift register at power-up.** OE is tied low (R107) and MR high (R105),
    so the outputs are enabled with random content until the MCU writes the
-   register. The firmware drives `OFF` HIGH first and writes the safe variant
-   within a few ms of reset. The converter can still start before the MCU
-   runs, though, because R28 pulls the Q5 base low, which means "converter
-   ON". Recommended changes: a pull-up on OFF (converter off by default)
-   and/or OE driven or pulled up.
+   register. This is not a hazard with the current hardware: R28 keeps Q5
+   off, so the converter stays disabled until the firmware has written the
+   variant and drives `OFF` HIGH. Driving OE from the MCU, or pulling it up,
+   would still make the power-up state fully defined.
 2. **I2C speed.** I2C runs at 100 kHz because of the 10 kΩ pull-ups and the
    NFC board connector.
 3. **Req values.** The Req computed from the fitted E96 values is about 1 %

@@ -9,7 +9,8 @@
  *            PF1  MCU_RXD          DALI receive  (GPIO input, EXTI1)
  *            PA0  NFC_EventDetect  NTAG 5 ED pin (input, EXTI0, active low)
  *            PA1  uVLED            ADC_IN1, LED output voltage
- *            PA3  OFF              power stage shutdown, HIGH = converter OFF
+ *            PA3  OFF              power stage control, HIGH = converter ON
+ *                                  (polarity: CFG_OFF_ENABLE_HIGH)
  *            PA4  PWM_OUT          TIM14_CH1, current sense offset
  *            PA6  STCP             shift register storage clock
  *            PA7  SHCP             shift register shift clock
@@ -56,13 +57,14 @@
 #define BSP_PRIO_SYSTICK       (1U)   /* 1 ms application tick                */
 
 /**
- * @brief   Forces the power stage OFF as early as possible after reset.
- * @details Enables the GPIOA/GPIOB/GPIOF clocks, drives PA3 (OFF) HIGH and
- *          configures it as push-pull output. Until this point the pin is a
- *          floating input and the board pull-down keeps the converter ON, so
- *          this must be the very first instruction of main(): it shortens
- *          the window in which the converter could run with an undefined
- *          current limitation (shift register content is random at power-up).
+ * @brief   Keeps the power stage disabled right after reset.
+ * @details Enables the GPIOA/GPIOB/GPIOF clocks, drives PA3 (OFF) to its
+ *          disable level (LOW with the default CFG_OFF_ENABLE_HIGH = 1) and
+ *          configures it as push-pull output. Before this point the pin is a
+ *          floating input and R28 keeps Q5 off, i.e. the converter is already
+ *          disabled; driving the pin actively makes this state independent
+ *          of noise and leakage. The stage is enabled only after the current
+ *          limitation (shift register) has been written.
  * @par     Parameters
  *          None.
  * @par     Return value
@@ -122,8 +124,9 @@ void BSP_TickIncrement(void);
 
 /**
  * @brief   Enables or disables the LED power stage through the OFF pin.
- * @param[in] enable  true: OFF LOW, converter allowed to run.
- *                    false: OFF HIGH, converter shut down.
+ * @param[in] enable  true: converter allowed to run (OFF HIGH by default).
+ *                    false: converter shut down (OFF LOW by default).
+ *                    The pin levels follow CFG_OFF_ENABLE_HIGH.
  * @par     Return value
  *          None (void).
  * @note    Context: any. Uses the atomic BSRR/BRR registers.
@@ -134,7 +137,8 @@ void BSP_PowerStageEnable(bool enable);
  * @brief   Reads back the commanded state of the power stage.
  * @par     Parameters
  *          None.
- * @return  true if the OFF pin is driven LOW (stage enabled), false otherwise.
+ * @return  true if the OFF pin is driven at its enable level (HIGH by
+ *          default), false otherwise.
  * @note    Context: any. Reflects the output latch, not a measurement.
  */
 bool BSP_PowerStageIsEnabled(void);

@@ -64,12 +64,38 @@ static void gpio_set_af(GPIO_TypeDef *port, uint32_t pin, uint32_t af)
   port->AFR[idx] = afr;
 }
 
-/* Public API (full description in bsp.h): forces the power stage OFF right after reset. */
+/**
+ * @brief   Drives the OFF pin to the level that enables / disables the stage.
+ * @details Applies the polarity CFG_OFF_ENABLE_HIGH: with the default (1)
+ *          enable = OFF HIGH, disable = OFF LOW. Atomic BSRR / BRR write.
+ * @param[in] enable  true = power stage enabled, false = disabled.
+ * @par     Return value
+ *          None (void).
+ * @note    Context: any.
+ */
+static void off_pin_write(bool enable)
+{
+#if (CFG_OFF_ENABLE_HIGH != 0)
+  const bool high = enable;
+#else
+  const bool high = !enable;
+#endif
+  if (high)
+  {
+    BSP_OFF_PORT->BSRR = BSP_PIN_MASK(BSP_OFF_PIN);
+  }
+  else
+  {
+    BSP_OFF_PORT->BRR = BSP_PIN_MASK(BSP_OFF_PIN);
+  }
+}
+
+/* Public API (full description in bsp.h): disables the power stage right after reset. */
 void BSP_EarlyInit(void)
 {
-  /* Power stage OFF as soon as possible (OFF pin HIGH). */
+  /* Power stage disabled as soon as possible (OFF at its disable level). */
   RCC->AHBENR |= (RCC_AHBENR_GPIOAEN | RCC_AHBENR_GPIOBEN | RCC_AHBENR_GPIOFEN);
-  BSP_OFF_PORT->BSRR = BSP_PIN_MASK(BSP_OFF_PIN);
+  off_pin_write(false);
   gpio_set_mode(BSP_OFF_PORT, BSP_OFF_PIN, GPIO_MODE_OUTPUT);
 }
 
@@ -204,20 +230,18 @@ void BSP_DelayMs(uint32_t ms)
 /* Public API (full description in bsp.h): drives the OFF pin. */
 void BSP_PowerStageEnable(bool enable)
 {
-  if (enable)
-  {
-    BSP_OFF_PORT->BRR = BSP_PIN_MASK(BSP_OFF_PIN);
-  }
-  else
-  {
-    BSP_OFF_PORT->BSRR = BSP_PIN_MASK(BSP_OFF_PIN);
-  }
+  off_pin_write(enable);
 }
 
 /* Public API (full description in bsp.h): reads back the OFF pin latch. */
 bool BSP_PowerStageIsEnabled(void)
 {
-  return ((BSP_OFF_PORT->ODR & BSP_PIN_MASK(BSP_OFF_PIN)) == 0U);
+  const bool high = ((BSP_OFF_PORT->ODR & BSP_PIN_MASK(BSP_OFF_PIN)) != 0U);
+#if (CFG_OFF_ENABLE_HIGH != 0)
+  return high;
+#else
+  return !high;
+#endif
 }
 
 /* Public API (full description in bsp.h): starts the ~1 s independent watchdog. */

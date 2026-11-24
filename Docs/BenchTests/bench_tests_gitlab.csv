@@ -1,0 +1,269 @@
+"title","description"
+"Verify OFF (PA3) polarity and power-up sequence","## Goal
+Confirm that the power stage stays disabled from power-up until the firmware enables it, and that OFF = HIGH enables the converter.
+
+## Setup
+- Firmware commit `6bfbef3` or later.
+- Oscilloscope: CH1 OFF (PA3), CH2 LED current (current probe or shunt), CH3 MCU 3.3 V.
+- Nominal LED string as load.
+
+## Procedure
+1. Power the driver from mains with no DALI commands (power-on level = 254 by default).
+2. Capture 3.3 V rising, OFF and LED current.
+3. Repeat 10 times, including fast off-on cycles (< 1 s off).
+
+## Pass criteria
+- OFF stays LOW while 3.3 V rises and during MCU reset (R28 keeps Q5 off).
+- No LED current before OFF goes HIGH.
+- OFF goes HIGH only after the variant has been written. Record the delay from 3.3 V to OFF HIGH.
+
+## Firmware impact
+If it fails, review `CFG_OFF_ENABLE_HIGH` and `BSP_EarlyInit()`.
+
+/label ~""bench-test"" ~""priority::high"" ~""power-stage""
+"
+"Switch-on transient: PWM_OUT duty while off (CFG_PWM_DUTY_WHEN_OFF)","## Goal
+Choose the PWM_OUT duty applied while the stage is off: 100 % (current default, soft start) or 0 % (preliminary software behaviour).
+
+## Setup
+Oscilloscope on OFF, PWM_OUT, filtered PWM_OUT node (CS_out offset) and LED current.
+
+## Procedure
+1. With `CFG_PWM_DUTY_WHEN_OFF = 10000`: DAPC 0, wait 5 s, DAPC 165 (65 %). Capture the first 200 ms after OFF goes HIGH.
+2. Repeat with DAPC 159 (minimum) and DAPC 254.
+3. Rebuild with `CFG_PWM_DUTY_WHEN_OFF = 0` and repeat steps 1-2.
+
+## Pass criteria
+- LED current never exceeds the steady-state target by more than an agreed limit (proposal: 10 %).
+- No visible flash.
+- Record the settling time to within 2 % of the target.
+
+## Firmware impact
+Keep the value that passes. If both fail, add a configurable pre-charge delay between setting the duty and driving OFF HIGH.
+
+/label ~""bench-test"" ~""priority::high"" ~""dimming""
+"
+"LED current vs PWM_OUT duty calibration (CFG_PWM_CAL_TABLE)","## Goal
+Replace the ideal linear calibration vector with measured data.
+
+## Setup
+Calibrated ammeter or current probe on the LED string (average value). Debug build to force the duty, or DALI commands at known levels.
+
+## Procedure
+1. For at least 3 variants (lowest, middle and highest current, e.g. 0, 8, 16), measure the LED current at duty 0, 10, 20 ... 90 % and at 92.5 %.
+2. Repeat at the minimum and maximum LED string voltage of the product.
+3. Repeat one variant at 25 °C and at the maximum operating temperature.
+
+## Pass criteria / output
+- Table: duty vs current (mA) and relative current (% of the duty 0 % value) for each variant, attached to this issue.
+- Check whether one common relative vector is enough (proposal: <= 2 % deviation between variants).
+
+## Firmware impact
+- Update `CFG_PWM_CAL_TABLE` (inverse table: duty in 0.01 % for 0, 10 ... 100 % current).
+- If variants differ too much, one vector per variant is needed.
+- Update `CFG_VARIANT_NOMINAL_CURRENT_MA` with the values measured at duty 0 %.
+
+/label ~""bench-test"" ~""priority::high"" ~""dimming""
+"
+"Minimum stable output and physical minimum level (PHM)","## Goal
+Check whether 7.5 % (duty 92.5 %, PHM 159) is a real hardware limit or only a choice of the preliminary software.
+
+## Procedure
+1. Debug build: force the duty from 92.5 % to 100 % in 0.5 % steps.
+2. At each step check regulation stability (no burst mode, no hiccup), flicker, LED current ripple and repeatability on 3 boards.
+3. Repeat at minimum and maximum string voltage, lowest and highest current variant.
+
+## Pass criteria / output
+Highest duty with stable, flicker-free and monotonic output in all tested conditions, and the relative current at that point.
+
+## Firmware impact
+- Recompute `CFG_PHYSICAL_MIN_LEVEL` (log curve: n = 254 + log2(Xmin) / 0.0393905) and `CFG_PHYSICAL_MIN_LEVEL_LINEAR` (n = ceil(Xmin * 254)).
+- A lower PHM gives a wider dimming range.
+
+Depends on: LED current vs duty calibration.
+
+/label ~""bench-test"" ~""priority::medium"" ~""dimming""
+"
+"LED current ripple and flicker at 244 Hz PWM","## Goal
+Verify that the 244 Hz PWM_OUT does not produce visible flicker or stroboscopic effect.
+
+## Procedure
+1. Measure LED current ripple (peak-to-peak and 244 Hz component) at DALI levels 254, 216, 191, 165, 159.
+2. If available, measure light output with a photodiode / flicker meter: percent flicker, flicker index, SVM, Pst LM.
+
+## Pass criteria
+To be agreed with the product requirements. References: IEEE 1789 low-risk region; SVM <= 0.4 and Pst LM <= 1 (EU Ecodesign regulation 2019/2020, light source).
+
+## Firmware impact
+If it fails, evaluate a higher PWM frequency (`CFG_PWM_PRESCALER`, `CFG_PWM_PERIOD_COUNTS`); the PWM_OUT filter must be re-checked.
+
+Depends on: LED current vs duty calibration.
+
+/label ~""bench-test"" ~""priority::medium"" ~""dimming""
+"
+"DALI level vs duty regression on hardware (new firmware)","## Goal
+Confirm on the hardware that the new firmware reproduces the table measured with the preliminary software.
+
+## Procedure
+1. Send DAPC at 100, 95 ... 5, 0 % (level = % * 254 / 100). Measure PWM_OUT duty, frequency (expected 244.14 Hz) and OFF.
+2. DT6 `SELECT DIMMING CURVE` linear, then repeat at levels 254, 127, 19 and 10.
+3. Send `QUERY PHYSICAL MINIMUM` with both curves.
+
+## Pass criteria
+- Log curve: duty within +/-0.6 % of the README table; OFF HIGH for every level > 0, LOW at 0.
+- Linear curve: duty 50 % at level 127, 92.5 % at level 19, level 10 clamped to 19.
+- `QUERY PHYSICAL MINIMUM` answers 159 (log) and 19 (linear).
+
+/label ~""bench-test"" ~""priority::medium"" ~""dimming""
+"
+"uVLED measurement accuracy","## Goal
+Validate the divider (826.2 kOhm / 6.2 kOhm) and the ADC chain before tuning the fault thresholds.
+
+## Procedure
+1. Apply known LED voltages at 5, 60, 150, 280 and 320 V (electronic load or DC source on the output, power stage disabled if needed).
+2. Read the firmware value (memory bank 205/206 light source voltage, or debug).
+3. Repeat with VDDA at 3.0 V and 3.6 V.
+
+## Pass criteria
+Error <= 2 % over the range, same result at both VDDA values (VREFINT compensation working).
+
+## Firmware impact
+Correct the divider constants or add a gain/offset calibration.
+
+/label ~""bench-test"" ~""priority::high"" ~""monitoring""
+"
+"Fault detection: thresholds, debounce and blanking","## Goal
+Define the real thresholds (all current values are placeholders) and verify the reaction to every fault.
+
+## Procedure
+1. Measure the converter start-up time from OFF HIGH to settled LED voltage, at minimum and maximum level. It must be shorter than `CFG_FAULT_BLANKING_MS` (1500 ms).
+2. Measure the normal LED voltage range: min/max string, all variants, cold and hot.
+3. Inject each fault:
+   - short circuit: during operation and before power-up;
+   - open circuit: during operation and before power-up;
+   - over-voltage: string with too many LEDs or simulated load;
+   - under-voltage: string with too few LEDs.
+
+## Pass criteria
+- OFF goes LOW within ~100 ms after blanking (20 samples x 5 ms debounce).
+- The stage stays off until a power cycle.
+- DT6 `QUERY FAILURE STATUS` sets the right bit, `QUERY LAMP FAILURE` answers YES, the matching 253 counter increments.
+- After removing the fault and cycling power, normal operation resumes.
+- No false trips over 100 power cycles and level changes on a healthy load.
+
+## Firmware impact
+Set `CFG_FAULT_*_MV`, `CFG_FAULT_BLANKING_MS` and the debounce from the measured data.
+
+Depends on: uVLED measurement accuracy.
+
+/label ~""bench-test"" ~""priority::high"" ~""monitoring""
+"
+"DALI physical layer: polarity, timing and interoperability","## Goal
+Verify TX/RX polarity and timing on a real bus.
+
+## Setup
+DALI bus power supply, commercial DALI-2 controller or USB interface, oscilloscope on the bus.
+
+## Procedure
+1. Default polarity (`DALI_CFG_TX_ACTIVE_HIGH = 1`, `DALI_CFG_RX_INVERTED = 0`): the gear answers QUERY STATUS.
+2. Backward frame: settling time after the forward frame (expected ~7 ms, allowed 5.5-10.5 ms), bit timing, edge slopes.
+3. Bus current while the device transmits.
+4. Stress: 10000 queries, zero missed or corrupted answers.
+5. Minimum and maximum bus voltage, long cables.
+6. Bus low for more than 500 ms: system failure level applied.
+
+## Pass criteria
+IEC 62386-101 limits met, no communication errors.
+
+/label ~""bench-test"" ~""priority::high"" ~""dali""
+"
+"Commissioning with a commercial DALI-2 controller","## Goal
+Verify addressing and basic commands with a third-party tool.
+
+## Procedure
+1. Full commissioning: random address, search, short address assignment.
+2. Groups and scenes.
+3. Power-on level and system failure level.
+4. Fade time and fade rate.
+5. Read memory banks 0, 1, 202, 205, 206.
+6. Power cycle and re-check everything.
+
+## Pass criteria
+- Device types 6, 50, 51, 52 recognised.
+- All values readable and persistent.
+- Fades smooth, no visible steps.
+
+/label ~""bench-test"" ~""priority::medium"" ~""dali""
+"
+"Lamp variant selection and NFC end-of-line programming","## Goal
+Verify that the NFC record selects the right resistor set at the next boot.
+
+## Procedure
+1. Driver unpowered: write the variant record with the end-of-line NFC tool (""DLVR"" + 0x01 + index + CRC16 at block 0x01F0).
+2. Power up, measure shift register outputs Q0..Q5 and LED current for at least variants 0, 1, 8, 16.
+3. Write a new record while powered: the current must not change until the next power cycle.
+4. Write a record with a wrong CRC and one with index >= 17: both ignored, stored variant kept.
+5. Check that the MCU never writes the tag: tag content unchanged after 100 boots.
+
+## Pass criteria
+Outputs match `Docs/Schematics/Table_RvsQx.pdf`; LED current matches the variant nominal current within the agreed tolerance.
+
+/label ~""bench-test"" ~""priority::high"" ~""variant-nfc""
+"
+"EEPROM persistence and power loss robustness","## Goal
+Verify the redundant records under real power interruptions.
+
+## Procedure
+1. Change a DALI variable (e.g. SET MAX LEVEL) and remove mains power at random times 0-3 s after the command (save delay 2 s). Repeat 200 times.
+2. Run for more than 15 min so the counters are saved (`CFG_COUNTERS_SAVE_PERIOD_MS`), then power cycle.
+3. Read the 252/253 counters (operating time, start counter, energy).
+
+## Pass criteria
+- After every boot the variables hold the old or the new value, never corrupted or factory defaults.
+- Counters never go back by more than one save period.
+
+/label ~""bench-test"" ~""priority::medium"" ~""nvm""
+"
+"Power-on timing, standby power and efficiency","## Goal
+Check time to light, standby power and the values used by the 252 energy estimate.
+
+## Procedure
+1. Measure mains-on to light at the power-on level, and to the first valid DALI answer.
+2. Measure input power with the lamp off via DALI (level 0); compare with `CFG_STANDBY_POWER_MW`.
+3. Measure input power and efficiency at 100 %, 50 % and minimum level; compare with `CFG_EFFICIENCY_PCT`.
+
+## Pass criteria
+- Timings compliant with IEC 62386-102 power-on behaviour.
+- Standby within the product target and applicable regulation (Ecodesign networked standby).
+- 252 energy estimate within the agreed accuracy (proposal: +/-10 %).
+
+## Firmware impact
+Update `CFG_STANDBY_POWER_MW` and `CFG_EFFICIENCY_PCT`; possibly a level-dependent efficiency curve.
+
+/label ~""bench-test"" ~""priority::medium"" ~""power-stage""
+"
+"Control gear temperature reading (MCU internal sensor)","## Goal
+Check the offset of the control gear temperature reported in memory bank 206.
+
+## Procedure
+Read the temperature at 25 °C ambient after 1 h of operation, and in a climatic chamber at the maximum operating temperature. Compare with a thermocouple on the MCU.
+
+## Pass criteria
+Error <= 5 °C, or add the measured offset to the firmware.
+
+/label ~""bench-test"" ~""priority::low"" ~""monitoring""
+"
+"Robustness: watchdog, ESD, surge and burst","## Goal
+Verify that abnormal events always end with the power stage off or a clean restart.
+
+## Procedure
+Apply ESD on the DALI terminals and near the NFC antenna, surge on DALI and mains, and burst during operation. Check:
+- the driver recovers by itself;
+- OFF is never driven HIGH when it should not be;
+- EEPROM and variant stay intact.
+
+## Pass criteria
+No permanent malfunction, no wrong variant, any reset ends in normal operation (IWDG timeout ~1 s).
+
+/label ~""bench-test"" ~""priority::medium"" ~""robustness""
+"

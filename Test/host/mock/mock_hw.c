@@ -7,6 +7,7 @@
 #include "mock_hw.h"
 #include "bsp.h"
 #include "pwm_drv.h"
+#include "app_config.h"
 #include "eeprom_m24c04.h"
 #include "ntag5.h"
 #include "shiftreg.h"
@@ -49,7 +50,7 @@ void BSP_GetUid(uint8_t uid[12])
 }
 
 /* ---- PWM ---------------------------------------------------------------- */
-void PWM_DrvInit(void) { g_pwmDuty = 4096U; }
+void PWM_DrvInit(void) { g_pwmDuty = CFG_PWM_MAX_DUTY; }
 void PWM_DrvSetDuty(uint16_t duty) { g_pwmDuty = duty; }
 
 /* ---- EEPROM ------------------------------------------------------------- */

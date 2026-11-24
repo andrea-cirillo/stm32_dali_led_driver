@@ -20,7 +20,14 @@ static const uint16_t k_exp2Neg[17] =
   44376U, 42495U, 40693U, 38968U, 37316U, 35734U, 34219U, 32768U
 };
 
-static const uint16_t k_pwmCal[CFG_PWM_CAL_POINTS] = CFG_PWM_CAL_TABLE;
+/* Calibration vector in 0.01 % duty (app_config.h) and in timer counts.   */
+static const uint16_t k_pwmCalPct[CFG_PWM_CAL_POINTS] = CFG_PWM_CAL_TABLE;
+static uint16_t s_pwmCal[CFG_PWM_CAL_POINTS];
+static uint16_t s_pwmOffDuty = CFG_PWM_MAX_DUTY;
+
+#if ((CFG_PWM_PERIOD_COUNTS == 0U) || (CFG_PWM_PERIOD_COUNTS > 65535U))
+#error "CFG_PWM_PERIOD_COUNTS must be in 1..65535"
+#endif
 
 static int32_t  s_levelQ16 = 0;
 static int32_t  s_targetQ16 = 0;
@@ -78,10 +85,28 @@ static uint16_t curve_output(int32_t levelQ16)
 }
 
 /**
+ * @brief   Converts a duty in 0.01 % into a PWM_OUT compare value.
+ * @param[in] pct  Duty in 0.01 % (0..CFG_PWM_DUTY_FULL_SCALE); larger values
+ *                 are clamped to 100 %.
+ * @return  Compare value 0..CFG_PWM_MAX_DUTY, rounded to the nearest count.
+ * @note    Context: initialisation only (uses a division).
+ */
+static uint16_t duty_from_pct(uint16_t pct)
+{
+  const uint32_t p = (pct > CFG_PWM_DUTY_FULL_SCALE) ? CFG_PWM_DUTY_FULL_SCALE : (uint32_t)pct;
+  const uint32_t counts = ((p * CFG_PWM_MAX_DUTY) + (CFG_PWM_DUTY_FULL_SCALE / 2U)) /
+                          CFG_PWM_DUTY_FULL_SCALE;
+  return (uint16_t)counts;
+}
+
+/**
  * @brief   Converts a relative LED current into the PWM_OUT compare value.
- * @details Linear interpolation of the calibration vector CFG_PWM_CAL_TABLE,
- *          whose CFG_PWM_CAL_POINTS points are equally spaced between 0 % and
- *          100 % of the nominal current. 100 % returns exactly the last point.
+ * @details Linear interpolation of the calibration vector (CFG_PWM_CAL_TABLE
+ *          converted to timer counts by Light_Init()), whose
+ *          CFG_PWM_CAL_POINTS points are equally spaced between 0 % and 100 %
+ *          of the nominal current. 100 % returns exactly the last point.
+ *          The vector may be increasing or decreasing; the product of the
+ *          difference (< 2^16) and the fraction (< 2^16) fits in 32 bit.
  * @param[in] relQ16  Relative current in Q16 (65535 = 100 %).
  * @return  PWM compare value 0..CFG_PWM_MAX_DUTY.
  * @note    Context: SysTick.
@@ -94,21 +119,29 @@ static uint16_t calibrated_duty(uint16_t relQ16)
 
   if ((relQ16 == 0xFFFFU) || (idx >= (CFG_PWM_CAL_POINTS - 1U)))
   {
-    duty = k_pwmCal[CFG_PWM_CAL_POINTS - 1U];
+    duty = s_pwmCal[CFG_PWM_CAL_POINTS - 1U];
   }
   else
   {
-    const int32_t a = (int32_t)k_pwmCal[idx];
-    const int32_t b = (int32_t)k_pwmCal[idx + 1U];
-    const int32_t frac = (int32_t)(pos & 0xFFFFUL);
-    duty = (uint32_t)(a + (((b - a) * frac) / 65536L));
+    const uint32_t a = s_pwmCal[idx];
+    const uint32_t b = s_pwmCal[idx + 1U];
+    const uint32_t frac = pos & 0xFFFFUL;
+    if (b >= a)
+    {
+      duty = a + (((b - a) * frac) >> 16U);
+    }
+    else
+    {
+      duty = a - (((a - b) * frac) >> 16U);
+    }
   }
   return (uint16_t)duty;
 }
 
 /**
  * @brief   Updates power stage and PWM_OUT from the current level.
- * @details Level 0, or fault latched: PWM at maximum duty and power stage OFF.
+ * @details Level 0, or fault latched: PWM at CFG_PWM_DUTY_WHEN_OFF and power
+ *          stage OFF (OFF pin LOW).
  *          Otherwise: PWM from curve + calibration, power stage ON; counts the
  *          off -> on transitions and the on time. While identifying the level
  *          alternates between 254 and the identify minimum.
@@ -129,7 +162,7 @@ static void output_update(void)
 
   if ((lvl <= 0) || s_faultLatched)
   {
-    PWM_DrvSetDuty(CFG_PWM_MAX_DUTY);
+    PWM_DrvSetDuty(s_pwmOffDuty);
     BSP_PowerStageEnable(false);
     s_lampOn = false;
     s_onTimeMs = 0U;
@@ -156,6 +189,13 @@ static void output_update(void)
 /* Public API (full description in light_ctrl.h): light output initialisation (OFF). */
 void Light_Init(void)
 {
+  uint32_t i;
+
+  for (i = 0U; i < CFG_PWM_CAL_POINTS; i++)
+  {
+    s_pwmCal[i] = duty_from_pct(k_pwmCalPct[i]);
+  }
+  s_pwmOffDuty = duty_from_pct(CFG_PWM_DUTY_WHEN_OFF);
   PWM_DrvInit();
   s_levelQ16 = 0;
   s_targetQ16 = 0;

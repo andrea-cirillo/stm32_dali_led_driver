@@ -13,7 +13,7 @@ void PWM_DrvInit(void)
 {
   RCC->APB1ENR |= RCC_APB1ENR_TIM14EN;
   TIM14->CR1 = TIM_CR1_ARPE;
-  TIM14->PSC = 0U;
+  TIM14->PSC = CFG_PWM_PRESCALER - 1U;
   TIM14->ARR = CFG_PWM_PERIOD_COUNTS - 1U;
   /* Start at maximum duty = minimum current while the stage is off */
   TIM14->CCR1 = CFG_PWM_MAX_DUTY;

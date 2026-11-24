@@ -23,8 +23,9 @@
 
 /**
  * @brief   Initialises the light output in the OFF state.
- * @details Starts the PWM at maximum duty (minimum current), resets the
- *          fade engine to level 0 and keeps the power stage OFF.
+ * @details Converts the calibration vector (0.01 % duty) into timer counts,
+ *          starts the PWM, resets the fade engine to level 0, sets PWM_OUT to
+ *          CFG_PWM_DUTY_WHEN_OFF and keeps the power stage OFF (OFF pin LOW).
  * @par     Parameters
  *          None.
  * @par     Return value

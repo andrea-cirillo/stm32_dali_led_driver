@@ -374,6 +374,22 @@ static bool is_reset_state(void)
 }
 
 /**
+ * @brief   Physical minimum level (PHM) of the selected dimming curve.
+ * @details The minimum light output of the hardware is fixed; its DALI level
+ *          depends on the curve: CFG_PHYSICAL_MIN_LEVEL on the logarithmic
+ *          curve, CFG_PHYSICAL_MIN_LEVEL_LINEAR on the 207 linear curve.
+ * @par     Parameters
+ *          None.
+ * @return  PHM 1..254 for s_nv.dimmingCurve.
+ * @note    Context: SysTick / init.
+ */
+static uint8_t phm(void)
+{
+  return (s_nv.dimmingCurve == 1U) ? (uint8_t)CFG_PHYSICAL_MIN_LEVEL_LINEAR
+                                   : (uint8_t)CFG_PHYSICAL_MIN_LEVEL;
+}
+
+/**
  * @brief   Loads the RESET values into the variables (RESET command).
  * @details Levels 254, minLevel = PHM, fade rate 7, fade times 0, operating mode
  *          0, scenes MASK, groups 0, random / search address 0xFFFFFF, DT6
@@ -816,7 +832,7 @@ static void cmd_config(uint8_t d)
         }
         break;
       case 0x2BU:                                /* SET MIN LEVEL        */
-        v = (s_dtr0 < CFG_PHYSICAL_MIN_LEVEL) ? CFG_PHYSICAL_MIN_LEVEL : s_dtr0;
+        v = (s_dtr0 < phm()) ? phm() : s_dtr0;
         v = (v > s_nv.maxLevel) ? s_nv.maxLevel : v;
         set_nv(&s_nv.minLevel, v);
         if ((Light_GetActualLevel() != 0U) && (Light_GetActualLevel() < v))
@@ -898,7 +914,7 @@ static void cmd_query(uint8_t d)
         s_qndtIdx = 0U;
         s_qndtValid = true;
         break;
-      case 0x9AU: reply(CFG_PHYSICAL_MIN_LEVEL); break;
+      case 0x9AU: reply(phm()); break;
       case 0x9BU: reply_yes_if(s_powerCycleSeen); break;
       case 0x9CU: reply(s_dtr1); break;
       case 0x9DU: reply(s_dtr2); break;
@@ -951,8 +967,24 @@ static void cmd_dt6(uint8_t d)
     case 0xE3U:                                  /* SELECT DIMMING CURVE */
       if (s_dtr0 <= 1U)
       {
+        const uint8_t oldPhm = phm();
         set_nv(&s_nv.dimmingCurve, s_dtr0);
         Light_SetCurve(s_dtr0);
+        /* PHM depends on the curve: a minLevel at the old PHM follows the  */
+        /* new PHM, any other value is only kept >= the new PHM.            */
+        if ((s_nv.minLevel == oldPhm) || (s_nv.minLevel < phm()))
+        {
+          set_nv(&s_nv.minLevel, phm());
+        }
+        if (s_nv.maxLevel < s_nv.minLevel)
+        {
+          set_nv(&s_nv.maxLevel, s_nv.minLevel);
+        }
+        /* never leave the output below the hardware minimum */
+        if ((Light_GetActualLevel() != 0U) && (Light_GetActualLevel() < s_nv.minLevel))
+        {
+          go_to(s_nv.minLevel, 0U);
+        }
       }
       break;
     case 0xE4U:                                  /* SET FAST FADE TIME   */
@@ -1248,9 +1280,13 @@ void Gear_Init(void)
     s_nvSaveNow = true;
   }
   /* sanitise values read from the EEPROM */
-  if ((s_nv.minLevel < CFG_PHYSICAL_MIN_LEVEL) || (s_nv.minLevel > LEVEL_MAX))
+  if (s_nv.dimmingCurve > 1U)
   {
-    s_nv.minLevel = CFG_PHYSICAL_MIN_LEVEL;
+    s_nv.dimmingCurve = 0U;
+  }
+  if ((s_nv.minLevel < phm()) || (s_nv.minLevel > LEVEL_MAX))
+  {
+    s_nv.minLevel = phm();
   }
   if ((s_nv.maxLevel < s_nv.minLevel) || (s_nv.maxLevel > LEVEL_MAX))
   {
